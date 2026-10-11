@@ -6,6 +6,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeChildProcessSpawner from "@effect/platform-node/NodeChildProcessSpawner";
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
@@ -17,6 +18,7 @@ import {
   type ProjectId,
 } from "@t3tools/contracts";
 import * as NetService from "@t3tools/shared/Net";
+import { layer as processRunnerLayer } from "../processRunner.ts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -44,7 +46,13 @@ import {
   projectCommandErrorFromLiveServerRequest,
 } from "./project.ts";
 
-const layerCliRuntime = Layer.mergeAll(NodeServices.layer, NetService.layer);
+const layerCliRuntime = Layer.mergeAll(
+  NodeServices.layer,
+  NetService.layer,
+  processRunnerLayer.pipe(
+    Layer.provide(NodeChildProcessSpawner.layer.pipe(Layer.provide(NodeServices.layer))),
+  ),
+);
 const runCli = (args: ReadonlyArray<string>) =>
   Command.runWith(cli, { version: "0.0.0" })(args).pipe(Effect.provide(layerCliRuntime));
 

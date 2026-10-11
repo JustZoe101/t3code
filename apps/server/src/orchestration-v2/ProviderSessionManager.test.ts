@@ -1,5 +1,11 @@
 import * as NetAddress from "effect/net/NetAddress";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeChildProcessSpawner from "@effect/platform-node/NodeChildProcessSpawner";
+import { layer as processRunnerLayer } from "../processRunner.ts";
+
+const layerProcessRunnerTest = processRunnerLayer.pipe(
+  Layer.provide(NodeChildProcessSpawner.layer.pipe(Layer.provide(NodeServices.layer))),
+);
 import { assert, it } from "@effect/vitest";
 import { AgentScope } from "@t3tools/shared/AgentScope";
 import {
@@ -536,6 +542,7 @@ function layerTest(input: {
           layerProviderEventIngestorTest,
           layerConfiguredMcpRegistry,
           layerTestStores,
+          layerProcessRunnerTest,
           ...(input.serverSettingsLayer === undefined ? [] : [input.serverSettingsLayer]),
           ...(input.projectServiceLayer === undefined ? [] : [input.projectServiceLayer]),
         ),

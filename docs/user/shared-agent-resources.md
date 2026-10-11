@@ -45,6 +45,18 @@ include/exclude chip. Turn an instance off to withhold all shared resources
 from it, or exclude a single one. This is the "way out" for a provider that
 should keep its own configuration.
 
+## Hooks
+
+A hook is a command T3 runs itself on a lifecycle event — **session start**,
+**turn end**, or **tool call**. Give it a name, the event, a command and its
+arguments, and an optional timeout (default 30 s). The command runs directly,
+not through a shell, and its output is captured; a hook that fails or times out
+is logged and never fails the turn.
+
+Hooks are universal: T3 runs them for every provider, so the driver badges do
+not apply. Use the per-instance switch and the exclude chips to withhold a hook
+from one instance.
+
 ## Not supported everywhere
 
 Some drivers have no safe delivery path yet (project-seeded skills, user-home

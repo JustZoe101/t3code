@@ -36,7 +36,12 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
-import { SharedMcpServerMap, SharedResourceId, SharedSkillMap } from "./agentResources.ts";
+import {
+  SharedHookMap,
+  SharedMcpServerMap,
+  SharedResourceId,
+  SharedSkillMap,
+} from "./agentResources.ts";
 
 const PROVIDER_SLUG_MAX_CHARS = 64;
 /**
@@ -126,6 +131,7 @@ export const ProviderInstanceSharedConfig = Schema.Struct({
   disabledResourceIds: Schema.optionalKey(Schema.Array(SharedResourceId)),
   mcpServers: Schema.optionalKey(SharedMcpServerMap),
   skills: Schema.optionalKey(SharedSkillMap),
+  hooks: Schema.optionalKey(SharedHookMap),
 });
 export type ProviderInstanceSharedConfig = typeof ProviderInstanceSharedConfig.Type;
 

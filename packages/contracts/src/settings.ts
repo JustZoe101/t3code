@@ -19,7 +19,12 @@ import {
   TrimmedString,
 } from "./baseSchemas.ts";
 import { UsageLimitSourceId } from "./usageLimitSourceId.ts";
-import { SharedAgentResources, SharedMcpServerMap, SharedSkillMap } from "./agentResources.ts";
+import {
+  SharedAgentResources,
+  SharedHookMap,
+  SharedMcpServerMap,
+  SharedSkillMap,
+} from "./agentResources.ts";
 import { EnvironmentMachineKind, ThreadEnvMode, WorktreeSubmodules } from "./environment.ts";
 import { KeybindingShortcut } from "./keybindings.ts";
 import {
@@ -1548,6 +1553,7 @@ export const ServerSettingsPatch = Schema.Struct({
     Schema.Struct({
       mcpServers: Schema.optionalKey(SharedMcpServerMap),
       skills: Schema.optionalKey(SharedSkillMap),
+      hooks: Schema.optionalKey(SharedHookMap),
     }),
   ),
   // Per-entry, unlike `providerInstances`: a client only ever adds or removes

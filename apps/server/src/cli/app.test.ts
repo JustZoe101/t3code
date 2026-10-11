@@ -10,6 +10,8 @@ import type { DesktopAppActivationRequest } from "@t3tools/contracts";
 import { resolveDesktopAppControlAddress } from "@t3tools/shared/desktopAppControl";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as NetService from "@t3tools/shared/Net";
+import * as NodeChildProcessSpawner from "@effect/platform-node/NodeChildProcessSpawner";
+import { layer as processRunnerLayer } from "../processRunner.ts";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -28,6 +30,9 @@ const runCli = (args: ReadonlyArray<string>, env: Record<string, string> = {}) =
       Layer.mergeAll(
         NodeServices.layer,
         NetService.layer,
+        processRunnerLayer.pipe(
+          Layer.provide(NodeChildProcessSpawner.layer.pipe(Layer.provide(NodeServices.layer))),
+        ),
         ConfigProvider.layer(ConfigProvider.fromEnv({ env })),
       ),
     ),

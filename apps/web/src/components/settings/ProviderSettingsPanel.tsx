@@ -95,6 +95,7 @@ import { UsageProviderSettings } from "./UsageProviderSettings";
 import { ProviderSetupSection, readAntigravityAuthMethod } from "./ProviderSetupSection";
 import { SharedAgentResourcesSettings } from "./SharedAgentResourcesSettings";
 import { SharedSkillsSettings } from "./SharedSkillsSettings";
+import { SharedHooksSettings } from "./SharedHooksSettings";
 import { ProviderAuthenticationSection } from "./ProviderAuthenticationSection";
 import { CodexSetupSection, CodexManagedRuntimeFields } from "./CodexSetupSection";
 import { readCodexSetupMode } from "./CodexSetupSection.logic";
@@ -1190,6 +1191,8 @@ export function EnvironmentProviderSettings({
       <SharedAgentResourcesSettings environmentId={environmentId} readOnly={readOnly} />
 
       <SharedSkillsSettings environmentId={environmentId} readOnly={readOnly} />
+
+      <SharedHooksSettings environmentId={environmentId} readOnly={readOnly} />
 
       <UsageProviderSettings
         key={environmentId}

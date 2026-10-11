@@ -14,6 +14,7 @@ export type SettingsSheetTarget =
   | "SettingsProviderAccounts"
   | "SettingsSharedMcp"
   | "SettingsSharedSkills"
+  | "SettingsSharedHooks"
   | "SettingsKeyboard"
   | "SettingsMicrophone"
   | "SettingsFollowUp"

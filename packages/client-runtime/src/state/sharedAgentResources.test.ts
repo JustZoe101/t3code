@@ -2,8 +2,10 @@ import { describe, expect, it } from "vite-plus/test";
 import type { ProviderDriverKind } from "@t3tools/contracts";
 
 import {
+  emptySharedHookDraft,
   emptySharedMcpServerDraft,
   emptySharedSkillDraft,
+  sharedHookFromDraft,
   sharedMcpServerFromDraft,
   sharedServerSupportBadges,
   sharedSkillDriverSupport,
@@ -90,5 +92,32 @@ describe("shared skill draft", () => {
     expect(support.codex).toBe("supported");
     expect(support.grok).toBe("unsupported");
     expect(support.pi).toBe("unsupported");
+  });
+});
+
+describe("shared hook draft", () => {
+  it("requires a name and a command, and parses the timeout", () => {
+    expect(sharedHookFromDraft({ ...emptySharedHookDraft(), id: "x" })).toBeUndefined();
+    expect(
+      sharedHookFromDraft({ ...emptySharedHookDraft(), id: "x", command: "true" }),
+    ).toBeDefined();
+    expect(
+      sharedHookFromDraft({
+        ...emptySharedHookDraft(),
+        id: "x",
+        command: "true",
+        timeoutMs: "0",
+      }),
+    ).toBeUndefined();
+
+    const hook = sharedHookFromDraft({
+      ...emptySharedHookDraft(),
+      id: "x",
+      command: "true",
+      args: "a  b",
+      timeoutMs: "1500",
+    });
+    expect(hook?.timeoutMs).toBe(1500);
+    expect(hook?.args).toEqual(["a", "b"]);
   });
 });

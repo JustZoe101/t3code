@@ -24,6 +24,9 @@ import * as Fiber from "effect/Fiber";
 import * as FiberSet from "effect/FiberSet";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import { ProcessRunner } from "../processRunner.ts";
+import { runSharedHooks } from "../agentResources/HookRunner.ts";
+import type { SharedHookEvent } from "@t3tools/contracts";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
@@ -45,6 +48,7 @@ import { ProviderWorkspaceMissingError } from "../provider/Errors.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import {
+  resolveSharedHooks,
   resolveSharedMcpServers,
   resolveSharedSkills,
   type ResolvedSharedMcpServer,
@@ -344,6 +348,7 @@ export const layerWithOptions = (
   | EventSink.EventSinkV2
   | FileSystem.FileSystem
   | Path.Path
+  | ProcessRunner
   | IdAllocator.IdAllocatorV2
   | McpProviderSessions.McpProviderSessions
   | McpSessionRegistry.McpSessionRegistry
@@ -357,6 +362,7 @@ export const layerWithOptions = (
       const registry = yield* ProviderAdapterRegistry.ProviderAdapterRegistryV2;
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
+      const processRunner = yield* ProcessRunner;
       const homeDirectory = yield* HostProcess.HomeDirectory;
       const mcpSessionRegistry = yield* McpSessionRegistry.McpSessionRegistry;
       const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
@@ -478,6 +484,32 @@ export const layerWithOptions = (
           });
         }).pipe(Effect.ignore({ log: true }));
 
+      /**
+       * Run the instance's shared hooks for a lifecycle event. Hooks are T3-side
+       * and never fail the turn; a failing hook is logged and reported.
+       */
+      const runSharedHooksFor = (
+        providerInstanceId: ProviderInstanceId,
+        event: SharedHookEvent,
+        cwd?: string,
+      ) =>
+        Effect.gen(function* () {
+          if (Option.isNone(serverSettings)) return;
+          const settings = yield* serverSettings.value.getSettings;
+          const instance = settings.providerInstances[providerInstanceId];
+          const hooks = resolveSharedHooks({
+            resources: settings.sharedAgentResources,
+            instance: { driver: instance?.driver ?? "", shared: instance?.shared },
+          }).hooks;
+          if (hooks.length === 0) return;
+          yield* runSharedHooks({
+            runner: processRunner,
+            hooks,
+            event,
+            ...(cwd === undefined ? {} : { cwd }),
+          });
+        }).pipe(Effect.ignore({ log: true }));
+
       const layerScope = yield* Effect.scope;
       // Ctrl+C, or a stop that signals the whole process group, reaches the
       // provider CLIs with the server. They report their own background work
@@ -579,6 +611,7 @@ export const layerWithOptions = (
                 // the thread re-attaches, without rotating the credential.
                 const shared = yield* resolveSharedResources(providerInstanceId);
                 yield* seedSharedSkillsFor(providerInstanceId);
+                yield* runSharedHooksFor(providerInstanceId, "session-start");
                 const existing = yield* mcpSessions.read(threadId);
                 if (existing !== undefined) {
                   // Reserve before the async resolve so a release cannot
@@ -1999,7 +2032,7 @@ export const layerWithOptions = (
                     entry.runtime.providerSessionId,
                     event.providerThreadId,
                     event.runOrdinal,
-                  )
+                  ).pipe(Effect.andThen(runSharedHooksFor(entry.runtime.instanceId, "turn-end")))
                 : touchActivity(entry.runtime.providerSessionId, { providerActivity: true }),
             ).pipe(
               Effect.andThen(

@@ -1,7 +1,9 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeChildProcessSpawner from "@effect/platform-node/NodeChildProcessSpawner";
 import { assert, expect, it } from "@effect/vitest";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as NetService from "@t3tools/shared/Net";
+import { layer as processRunnerLayer } from "../processRunner.ts";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -121,7 +123,15 @@ function makeTestService(serviceStatus: BootService.BootServiceStatus) {
   return { service, installOptions, restarts };
 }
 
-it.layer(Layer.mergeAll(NodeServices.layer, NetService.layer))("service commands", (it) => {
+it.layer(
+  Layer.mergeAll(
+    NodeServices.layer,
+    NetService.layer,
+    processRunnerLayer.pipe(
+      Layer.provide(NodeChildProcessSpawner.layer.pipe(Layer.provide(NodeServices.layer))),
+    ),
+  ),
+)("service commands", (it) => {
   it.effect("restart restarts the installed service", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

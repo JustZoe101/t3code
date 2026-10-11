@@ -15,6 +15,7 @@
 import type {
   ProviderInstanceSharedConfig,
   SharedAgentResources,
+  SharedHook,
   SharedMcpServer,
   SharedResourceTargeting,
   SharedSkill,
@@ -172,4 +173,51 @@ export function resolveSharedSkills(input: {
     });
   }
   return { skills, rejected };
+}
+
+export interface ResolvedSharedHook {
+  /** The map key in `SharedAgentResources.hooks`. */
+  readonly id: string;
+  readonly hook: SharedHook;
+}
+
+export interface SharedHookResolution {
+  readonly hooks: ReadonlyArray<ResolvedSharedHook>;
+  readonly rejected: ReadonlyArray<{ readonly id: string; readonly reason: string }>;
+}
+
+/**
+ * Effective shared hooks for one provider instance. Hooks are universal: T3
+ * runs the command itself on the lifecycle event, so there is no per-driver
+ * delivery to gate. Steering still applies (instance switch, disabled ids,
+ * targeting, instance-local hooks).
+ */
+export function resolveSharedHooks(input: {
+  readonly resources: SharedAgentResources;
+  readonly instance: {
+    readonly driver: string;
+    readonly shared?: ProviderInstanceSharedConfig | undefined;
+  };
+}): SharedHookResolution {
+  const { instance } = input;
+  if (instance.shared?.enabled === false) return { hooks: [], rejected: [] };
+  const disabled = new Set<string>(instance.shared?.disabledResourceIds ?? []);
+
+  const merged = new Map<string, SharedHook>();
+  for (const [id, hook] of Object.entries(input.resources.hooks)) {
+    if (disabled.has(id)) continue;
+    if (!matchesTargeting(hook.targeting, instance.driver)) continue;
+    merged.set(id, hook);
+  }
+  for (const [id, hook] of Object.entries(instance.shared?.hooks ?? {})) {
+    if (!matchesTargeting(hook.targeting, instance.driver)) continue;
+    merged.set(id, hook);
+  }
+
+  return {
+    hooks: [...merged.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([id, hook]) => ({ id, hook })),
+    rejected: [],
+  };
 }

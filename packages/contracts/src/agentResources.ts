@@ -97,12 +97,41 @@ export const SharedSkillMap = Schema.Record(SharedResourceId, SharedSkill);
 export type SharedSkillMap = typeof SharedSkillMap.Type;
 
 /**
+ * When a shared hook runs. Deliberately three bounded events: T3 runs these
+ * itself, so the surface never becomes arbitrary shell injection driven by an
+ * agent prompt.
+ */
+export const SharedHookEvent = Schema.Literals(["session-start", "turn-end", "tool-call"]);
+export type SharedHookEvent = typeof SharedHookEvent.Type;
+
+/**
+ * A command T3 runs on a lifecycle event. `command`/`args` are executed
+ * directly (no shell); `env` values marked sensitive come from the secret
+ * store like every other shared variable.
+ */
+export const SharedHook = Schema.Struct({
+  event: SharedHookEvent,
+  command: TrimmedNonEmptyString,
+  args: Schema.optionalKey(Schema.Array(TrimmedString)),
+  env: Schema.optionalKey(Schema.Array(SharedResourceVariable)),
+  timeoutMs: Schema.optionalKey(
+    Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 600_000 })),
+  ),
+  targeting: SharedResourceTargeting.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+});
+export type SharedHook = typeof SharedHook.Type;
+
+export const SharedHookMap = Schema.Record(SharedResourceId, SharedHook);
+export type SharedHookMap = typeof SharedHookMap.Type;
+
+/**
  * Environment-level shared agent resources. Grows a key per later phase
- * (`plugins`, `hooks`).
+ * (`plugins`).
  */
 export const SharedAgentResources = Schema.Struct({
   mcpServers: SharedMcpServerMap.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   skills: SharedSkillMap.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  hooks: SharedHookMap.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 export type SharedAgentResources = typeof SharedAgentResources.Type;
 

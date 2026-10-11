@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 import { SharedAgentResources, type SharedSkillMap } from "@t3tools/contracts";
 
-import { resolveSharedSkills } from "./sharedAgentResources.ts";
+import { resolveSharedSkills, resolveSharedHooks } from "./sharedAgentResources.ts";
 import { managedSkillsHomePath } from "./sharedSkillSeeding.ts";
 
 const decodeResources = Schema.decodeUnknownSync(SharedAgentResources);
@@ -47,6 +47,22 @@ describe("resolveSharedSkills", () => {
       { id: "local", source: "/s/local" },
       { id: "shared", source: "/s/override" },
     ]);
+  });
+});
+
+describe("resolveSharedHooks", () => {
+  it("delivers hooks to every driver and honours the instance switch", () => {
+    const resources = decodeResources({
+      hooks: { lint: { event: "turn-end", command: "echo", args: ["hi"] } },
+    });
+    const claude = resolveSharedHooks({ resources, instance: { driver: "claudeAgent" } });
+    expect(claude.hooks.map(({ id }) => id)).toEqual(["lint"]);
+    // Hooks are universal: T3 runs them, so there is no driver gate.
+    const grok = resolveSharedHooks({ resources, instance: { driver: "grok" } });
+    expect(grok.hooks.map(({ id }) => id)).toEqual(["lint"]);
+    expect(
+      resolveSharedHooks({ resources, instance: { driver: "grok", shared: { enabled: false } } }),
+    ).toEqual({ hooks: [], rejected: [] });
   });
 });
 

@@ -7,6 +7,8 @@
 import {
   PROVIDER_DISPLAY_NAMES,
   type ProviderDriverKind,
+  type SharedHook,
+  type SharedHookEvent,
   type SharedMcpServer,
   type SharedMcpTransport,
   type SharedResourceVariable,
@@ -179,4 +181,82 @@ export function sharedSkillFromDraft(draft: SharedSkillDraft): SharedSkill | und
     ...(draft.excludeDrivers.length > 0 ? { excludeDrivers: draft.excludeDrivers } : {}),
   };
   return { source, targeting } as unknown as SharedSkill;
+}
+
+export const SHARED_HOOK_EVENTS: ReadonlyArray<SharedHookEvent> = [
+  "session-start",
+  "turn-end",
+  "tool-call",
+];
+
+export const SHARED_HOOK_EVENT_LABELS: Record<SharedHookEvent, string> = {
+  "session-start": "Session start",
+  "turn-end": "Turn end",
+  "tool-call": "Tool call",
+};
+
+export interface SharedHookDraft {
+  readonly originalId: string | null;
+  readonly id: string;
+  readonly event: SharedHookEvent;
+  readonly command: string;
+  readonly args: string;
+  /** Milliseconds as a string, so the field can be empty for the default. */
+  readonly timeoutMs: string;
+  readonly env: ReadonlyArray<SharedResourceVariable>;
+  readonly drivers: ReadonlyArray<ProviderDriverKind>;
+  readonly excludeDrivers: ReadonlyArray<ProviderDriverKind>;
+}
+
+export function draftFromSharedHook(id: string, hook: SharedHook): SharedHookDraft {
+  return {
+    originalId: id,
+    id,
+    event: hook.event,
+    command: hook.command,
+    args: (hook.args ?? []).join(" "),
+    timeoutMs: hook.timeoutMs === undefined ? "" : String(hook.timeoutMs),
+    env: hook.env ?? [],
+    drivers: [...(hook.targeting?.drivers ?? [])] as unknown as ReadonlyArray<ProviderDriverKind>,
+    excludeDrivers: [
+      ...(hook.targeting?.excludeDrivers ?? []),
+    ] as unknown as ReadonlyArray<ProviderDriverKind>,
+  };
+}
+
+export function emptySharedHookDraft(): SharedHookDraft {
+  return {
+    originalId: null,
+    id: "",
+    event: "turn-end",
+    command: "",
+    args: "",
+    timeoutMs: "",
+    env: [],
+    drivers: [],
+    excludeDrivers: [],
+  };
+}
+
+/** `undefined` when the draft is incomplete; a form refuses to save then. */
+export function sharedHookFromDraft(draft: SharedHookDraft): SharedHook | undefined {
+  const id = draft.id.trim();
+  const command = draft.command.trim();
+  if (id.length === 0 || command.length === 0) return undefined;
+  const timeout = draft.timeoutMs.trim();
+  const timeoutMs = timeout.length > 0 ? Number.parseInt(timeout, 10) : undefined;
+  if (timeout.length > 0 && (!Number.isFinite(timeoutMs) || (timeoutMs ?? 0) < 1)) return undefined;
+  const args = draft.args.trim().length > 0 ? draft.args.trim().split(/\s+/) : [];
+  const targeting = {
+    ...(draft.drivers.length > 0 ? { drivers: draft.drivers } : {}),
+    ...(draft.excludeDrivers.length > 0 ? { excludeDrivers: draft.excludeDrivers } : {}),
+  };
+  return {
+    event: draft.event,
+    command,
+    ...(args.length > 0 ? { args } : {}),
+    ...(timeoutMs === undefined ? {} : { timeoutMs }),
+    ...(draft.env.length > 0 ? { env: [...draft.env] } : {}),
+    targeting,
+  } as unknown as SharedHook;
 }
