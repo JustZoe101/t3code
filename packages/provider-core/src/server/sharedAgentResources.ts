@@ -17,8 +17,13 @@ import type {
   SharedAgentResources,
   SharedMcpServer,
   SharedResourceTargeting,
+  SharedSkill,
 } from "@t3tools/contracts";
-import { mcpTransportSupport, type McpTransport } from "@t3tools/shared/providerResources";
+import {
+  mcpTransportSupport,
+  skillSupportForDriver,
+  type McpTransport,
+} from "@t3tools/shared/providerResources";
 
 export interface ResolvedSharedMcpServer {
   /** The map key in `SharedAgentResources.mcpServers`. */
@@ -108,4 +113,63 @@ export function resolveSharedMcpServers(input: {
     });
   }
   return { servers, rejected };
+}
+
+export interface ResolvedSharedSkill {
+  /** The map key in `SharedAgentResources.skills`. */
+  readonly id: string;
+  readonly skill: SharedSkill;
+}
+
+export interface RejectedSharedSkill {
+  readonly id: string;
+  readonly reason: string;
+}
+
+export interface SharedSkillResolution {
+  readonly skills: ReadonlyArray<ResolvedSharedSkill>;
+  readonly rejected: ReadonlyArray<RejectedSharedSkill>;
+}
+
+/**
+ * Effective shared skills for one provider instance: environment entries
+ * filtered by targeting and the instance's steering, plus instance-local
+ * skills (which win on an id collision). Skills have no transport, so the only
+ * capability gate is whether T3 can deliver into this driver at all.
+ */
+export function resolveSharedSkills(input: {
+  readonly resources: SharedAgentResources;
+  readonly instance: {
+    readonly driver: string;
+    readonly shared?: ProviderInstanceSharedConfig | undefined;
+  };
+}): SharedSkillResolution {
+  const { instance } = input;
+  if (instance.shared?.enabled === false) return { skills: [], rejected: [] };
+  const disabled = new Set<string>(instance.shared?.disabledResourceIds ?? []);
+
+  const merged = new Map<string, SharedSkill>();
+  for (const [id, skill] of Object.entries(input.resources.skills)) {
+    if (disabled.has(id)) continue;
+    if (!matchesTargeting(skill.targeting, instance.driver)) continue;
+    merged.set(id, skill);
+  }
+  for (const [id, skill] of Object.entries(instance.shared?.skills ?? {})) {
+    if (!matchesTargeting(skill.targeting, instance.driver)) continue;
+    merged.set(id, skill);
+  }
+
+  const skills: ResolvedSharedSkill[] = [];
+  const rejected: RejectedSharedSkill[] = [];
+  for (const [id, skill] of [...merged.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    if (skillSupportForDriver(instance.driver) === "supported") {
+      skills.push({ id, skill });
+      continue;
+    }
+    rejected.push({
+      id,
+      reason: `${instance.driver} does not receive shared skills yet.`,
+    });
+  }
+  return { skills, rejected };
 }

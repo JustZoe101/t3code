@@ -147,6 +147,10 @@
       "types": "./src/server/sharedAgentResources.ts",
       "import": "./src/server/sharedAgentResources.ts"
     },
+    "./server/sharedSkillSeeding": {
+      "types": "./src/server/sharedSkillSeeding.ts",
+      "import": "./src/server/sharedSkillSeeding.ts"
+    },
     "./server/snapshotSettings": {
       "types": "./src/server/snapshotSettings.ts",
       "import": "./src/server/snapshotSettings.ts"

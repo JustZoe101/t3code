@@ -82,11 +82,27 @@ export const SharedMcpServerMap = Schema.Record(SharedResourceId, SharedMcpServe
 export type SharedMcpServerMap = typeof SharedMcpServerMap.Type;
 
 /**
+ * A shared agent skill. `source` is the user's own skill directory (the one
+ * holding `SKILL.md`); T3 links it into a provider's skill root and removes
+ * that link on teardown, so a provider-owned or user-owned directory is never
+ * overwritten.
+ */
+export const SharedSkill = Schema.Struct({
+  source: TrimmedNonEmptyString,
+  targeting: SharedResourceTargeting.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+});
+export type SharedSkill = typeof SharedSkill.Type;
+
+export const SharedSkillMap = Schema.Record(SharedResourceId, SharedSkill);
+export type SharedSkillMap = typeof SharedSkillMap.Type;
+
+/**
  * Environment-level shared agent resources. Grows a key per later phase
- * (`skills`, `plugins`, `hooks`).
+ * (`plugins`, `hooks`).
  */
 export const SharedAgentResources = Schema.Struct({
   mcpServers: SharedMcpServerMap.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  skills: SharedSkillMap.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 export type SharedAgentResources = typeof SharedAgentResources.Type;
 

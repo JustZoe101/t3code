@@ -1,6 +1,7 @@
 import { AgentScope } from "@t3tools/shared/AgentScope";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import {
   ModelSelection,
   OrchestrationV2DomainEvent,
@@ -22,6 +23,7 @@ import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as FiberSet from "effect/FiberSet";
 import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
@@ -44,8 +46,14 @@ import * as ProjectService from "../project/ProjectService.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import {
   resolveSharedMcpServers,
+  resolveSharedSkills,
   type ResolvedSharedMcpServer,
+  type ResolvedSharedSkill,
 } from "@t3tools/provider-core/server/sharedAgentResources";
+import {
+  managedSkillsHomePath,
+  seedSharedSkills,
+} from "@t3tools/provider-core/server/sharedSkillSeeding";
 import * as ServerSettings from "../serverSettings.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as EventSink from "./EventSink.ts";
@@ -335,6 +343,7 @@ export const layerWithOptions = (
   never,
   | EventSink.EventSinkV2
   | FileSystem.FileSystem
+  | Path.Path
   | IdAllocator.IdAllocatorV2
   | McpProviderSessions.McpProviderSessions
   | McpSessionRegistry.McpSessionRegistry
@@ -347,6 +356,8 @@ export const layerWithOptions = (
     Effect.gen(function* () {
       const registry = yield* ProviderAdapterRegistry.ProviderAdapterRegistryV2;
       const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const homeDirectory = yield* HostProcess.HomeDirectory;
       const mcpSessionRegistry = yield* McpSessionRegistry.McpSessionRegistry;
       const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
       /**
@@ -403,30 +414,69 @@ export const layerWithOptions = (
         },
       );
       /**
-       * Shared MCP servers this instance should carry, resolved from the
-       * environment-wide registry plus the instance's steering. Optional
-       * settings (the hand-assembled test layers) yield no shared servers.
-       * A settings read failure is swallowed: the provider still starts with
-       * T3's own MCP server, and the user sees the missing servers in the UI.
+       * Shared MCP servers and skills this instance should carry, resolved from
+       * the environment-wide registry plus the instance's steering. Optional
+       * settings (the hand-assembled test layers) yield nothing. A settings
+       * read failure is swallowed: the provider still starts with T3's own MCP
+       * server, and the user sees the missing resources in the UI.
        */
-      const resolveSharedMcp = (
+      const resolveSharedResources = (
         providerInstanceId: ProviderInstanceId,
-      ): Effect.Effect<ReadonlyArray<ResolvedSharedMcpServer>> =>
+      ): Effect.Effect<{
+        readonly mcpServers: ReadonlyArray<ResolvedSharedMcpServer>;
+        readonly skills: ReadonlyArray<ResolvedSharedSkill>;
+      }> =>
         Option.isNone(serverSettings)
-          ? Effect.succeed([])
+          ? Effect.succeed({ mcpServers: [], skills: [] })
           : serverSettings.value.getSettings.pipe(
               Effect.map((settings) => {
                 const instance = settings.providerInstances[providerInstanceId];
-                return resolveSharedMcpServers({
-                  resources: settings.sharedAgentResources,
-                  instance: {
-                    driver: instance?.driver ?? "",
-                    shared: instance?.shared,
-                  },
-                }).servers;
+                const target = {
+                  driver: instance?.driver ?? "",
+                  shared: instance?.shared,
+                };
+                return {
+                  mcpServers: resolveSharedMcpServers({
+                    resources: settings.sharedAgentResources,
+                    instance: target,
+                  }).servers,
+                  skills: resolveSharedSkills({
+                    resources: settings.sharedAgentResources,
+                    instance: target,
+                  }).skills,
+                };
               }),
-              Effect.orElseSucceed(() => []),
+              Effect.orElseSucceed(() => ({ mcpServers: [], skills: [] })),
             );
+
+      /**
+       * Link the instance's shared skills into its managed home before the
+       * provider reads them. Idempotent; a no-op without a managed homePath, so
+       * the user's real `~/.claude` / `~/.codex` is never written.
+       */
+      const seedSharedSkillsFor = (providerInstanceId: ProviderInstanceId) =>
+        Effect.gen(function* () {
+          if (Option.isNone(serverSettings)) return;
+          const settings = yield* serverSettings.value.getSettings;
+          const instance = settings.providerInstances[providerInstanceId];
+          const driver = instance?.driver ?? "";
+          const homePath = managedSkillsHomePath({
+            driver,
+            config: instance?.config,
+            home: homeDirectory,
+          });
+          if (homePath === undefined) return;
+          const skills = resolveSharedSkills({
+            resources: settings.sharedAgentResources,
+            instance: { driver, shared: instance?.shared },
+          }).skills;
+          yield* seedSharedSkills({
+            fileSystem,
+            path,
+            root: path.join(homePath, "skills"),
+            skills,
+          });
+        }).pipe(Effect.ignore({ log: true }));
 
       const layerScope = yield* Effect.scope;
       // Ctrl+C, or a stop that signals the whole process group, reaches the
@@ -527,7 +577,8 @@ export const layerWithOptions = (
                 if (deviceToolsAvailable) capabilities.add("device");
                 // Refresh on every prepare so a settings edit is picked up when
                 // the thread re-attaches, without rotating the credential.
-                const sharedMcpServers = yield* resolveSharedMcp(providerInstanceId);
+                const shared = yield* resolveSharedResources(providerInstanceId);
+                yield* seedSharedSkillsFor(providerInstanceId);
                 const existing = yield* mcpSessions.read(threadId);
                 if (existing !== undefined) {
                   // Reserve before the async resolve so a release cannot
@@ -554,7 +605,11 @@ export const layerWithOptions = (
                     resolved.capabilities.has("preview") === browserToolsAvailable &&
                     resolved.capabilities.has("device") === deviceToolsAvailable
                   ) {
-                    yield* mcpSessions.set({ ...existing, sharedMcpServers });
+                    yield* mcpSessions.set({
+                      ...existing,
+                      sharedMcpServers: shared.mcpServers,
+                      sharedSkills: shared.skills,
+                    });
                     return { mcpCredentialId: existing.providerSessionId, issued: false };
                   }
                   dropMcpCredentialReservation(threadId, existing.providerSessionId);
@@ -566,7 +621,11 @@ export const layerWithOptions = (
                   browserToolsAvailable,
                   capabilities,
                 });
-                yield* mcpSessions.set({ ...credential.config, sharedMcpServers });
+                yield* mcpSessions.set({
+                  ...credential.config,
+                  sharedMcpServers: shared.mcpServers,
+                  sharedSkills: shared.skills,
+                });
                 reserveMcpCredential(threadId, credential.config.providerSessionId);
                 return { mcpCredentialId: credential.config.providerSessionId, issued: true };
               }),

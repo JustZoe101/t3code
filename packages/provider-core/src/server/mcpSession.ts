@@ -1,5 +1,5 @@
 import type { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
-import type { ResolvedSharedMcpServer } from "./sharedAgentResources.ts";
+import type { ResolvedSharedMcpServer, ResolvedSharedSkill } from "./sharedAgentResources.ts";
 
 export interface McpProviderSessionConfig {
   readonly environmentId: EnvironmentId;
@@ -30,6 +30,12 @@ export interface McpProviderSessionConfig {
    * secret store, so adapters only translate them into provider config.
    */
   readonly sharedMcpServers?: ReadonlyArray<ResolvedSharedMcpServer>;
+  /**
+   * User-configured shared skills this instance should also carry, resolved the
+   * same way. Each entry's `skill.source` is the user's own skill directory;
+   * adapters link it into a provider skill root and remove stale links.
+   */
+  readonly sharedSkills?: ReadonlyArray<ResolvedSharedSkill>;
 }
 
 /** Provider env with the device variables applied over `base`, or `base` untouched. */

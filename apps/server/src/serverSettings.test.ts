@@ -2001,6 +2001,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
               headers: [{ name: "X_TEAM", value: "team-secret", sensitive: true }],
             },
           } as SharedMcpServerMap,
+          skills: {},
         },
         providerInstances: {
           [instanceId]: {
@@ -2062,6 +2063,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
               headers: [{ name: "X_TEAM", value: "", sensitive: true, valueRedacted: true }],
             },
           } as SharedMcpServerMap,
+          skills: {},
         },
       });
       assert.equal(

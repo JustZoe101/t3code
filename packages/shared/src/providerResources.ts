@@ -63,3 +63,28 @@ export function mcpSupportForDriver(driver: string): McpDriverSupport {
 export function mcpTransportSupport(driver: string, transport: McpTransport): McpTransportSupport {
   return mcpSupportForDriver(driver)[transport];
 }
+
+/**
+ * Per-driver support for shared skills. There is one axis, not a transport:
+ * whether T3 can materialize a skill into a location the provider reads
+ * *without* writing into a directory the user owns. Claude (managed home) and
+ * Codex (shadow home / explicit home) qualify; the rest need a project seed or
+ * a user-home write and are not delivered yet.
+ */
+export type SkillSupport = "supported" | "unsupported";
+
+export const PROVIDER_SKILL_SUPPORT: Readonly<Record<string, SkillSupport>> = {
+  claudeAgent: "supported",
+  codex: "supported",
+  antigravity: "unsupported",
+  cursor: "unsupported",
+  grok: "unsupported",
+  opencode: "unsupported",
+  muse: "unsupported",
+  pi: "unsupported",
+  acpRegistry: "unsupported",
+};
+
+export function skillSupportForDriver(driver: string): SkillSupport {
+  return PROVIDER_SKILL_SUPPORT[driver] ?? "unsupported";
+}
