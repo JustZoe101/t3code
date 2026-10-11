@@ -1,10 +1,17 @@
 import { Schema } from "effect";
 import { describe, expect, it } from "vite-plus/test";
-import { SharedAgentResources } from "@t3tools/contracts";
+import {
+  SharedAgentResources,
+  type SharedMcpServerMap,
+  type SharedResourceId,
+} from "@t3tools/contracts";
 
 import { resolveSharedMcpServers } from "./sharedAgentResources.ts";
 
 const decodeResources = Schema.decodeUnknownSync(SharedAgentResources);
+
+/** The maps are keyed by a branded id; a plain literal needs the cast in tests. */
+const asMap = (servers: Record<string, unknown>) => servers as unknown as SharedMcpServerMap;
 
 const stdio = (command: string) => ({ transport: "stdio" as const, command });
 const http = (url: string) => ({ transport: "http" as const, url });
@@ -81,7 +88,7 @@ describe("resolveSharedMcpServers", () => {
 
     const selective = resolveSharedMcpServers({
       resources,
-      instance: { driver: "codex", shared: { disabledResourceIds: ["alpha"] } },
+      instance: { driver: "codex", shared: { disabledResourceIds: ["alpha" as SharedResourceId] } },
     });
     expect(selective.servers.map(({ id }) => id)).toEqual(["beta"]);
   });
@@ -95,7 +102,9 @@ describe("resolveSharedMcpServers", () => {
       resources,
       instance: {
         driver: "codex",
-        shared: { mcpServers: { shared: stdio("instance-mcp"), "local-only": stdio("local-mcp") } },
+        shared: {
+          mcpServers: asMap({ shared: stdio("instance-mcp"), "local-only": stdio("local-mcp") }),
+        },
       },
     });
 
