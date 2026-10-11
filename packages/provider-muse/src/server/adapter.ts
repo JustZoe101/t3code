@@ -38,6 +38,7 @@ import * as Stream from "effect/Stream";
 
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
+import { sharedMcpHeaderRecord } from "@t3tools/provider-core/server/sharedAgentResources";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import { buildRuntimeInstructions } from "@t3tools/provider-core/server/runtimeInstructions";
 import { museModelCapabilities, resolveMuseReasoningEffort } from "./modelCatalog.ts";
@@ -1498,6 +1499,27 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
             return yield* protocolError(
               "Update Muse Code to a version that supports session MCP servers",
             );
+          // User-configured shared servers. Muse only accepts streamable HTTP
+          // servers, and the resolve step withholds the rest.
+          const sharedHttpServers = Object.fromEntries(
+            (mcpSession?.sharedMcpServers ?? []).flatMap(({ id, transport, server }) =>
+              transport === "http" && server.url !== undefined
+                ? [
+                    [
+                      id,
+                      {
+                        transport: "streamableHttp",
+                        mode: "optional",
+                        url: server.url,
+                        ...(server.headers !== undefined && server.headers.length > 0
+                          ? { headers: sharedMcpHeaderRecord(server) }
+                          : {}),
+                      },
+                    ],
+                  ]
+                : [],
+            ),
+          );
           const config = mcpSession
             ? {
                 mcpServers: {
@@ -1509,6 +1531,7 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
                     url: mcpSession.endpoint,
                     headers: { Authorization: mcpSession.authorizationHeader },
                   },
+                  ...sharedHttpServers,
                 },
               }
             : undefined;

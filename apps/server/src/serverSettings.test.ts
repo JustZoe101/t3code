@@ -9,6 +9,8 @@ import {
   resolveProviderInstanceEnabled,
   ServerSettings,
   ServerSettingsPatch,
+  type SharedMcpServer,
+  type SharedMcpServerMap,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { assert, it } from "@effect/vitest";
@@ -1972,6 +1974,100 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       assert.deepEqual(settings.projectSettingsOverrides, {});
       // The user's file is still there to repair; nothing was written over it.
       assert.equal(yield* fileSystem.readFileString(serverConfig.settingsPath), broken);
+    }).pipe(Effect.provide(layerServerSettings())),
+  );
+
+  it.effect("keeps shared MCP server secrets out of settings.json and materializes them", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+      const serverConfig = yield* ServerConfig.ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const instanceId = ProviderInstanceId.make("codex_shared");
+      const serverAt = (map: SharedMcpServerMap | undefined, id: string) =>
+        map === undefined
+          ? undefined
+          : (map as unknown as Record<string, SharedMcpServer | undefined>)[id];
+
+      const next = yield* serverSettings.updateSettings({
+        sharedAgentResources: {
+          mcpServers: {
+            "team-db": {
+              transport: "stdio",
+              command: "team-db-mcp",
+              env: [
+                { name: "DB_TOKEN", value: "db-secret", sensitive: true },
+                { name: "DB_HOST", value: "db.internal", sensitive: false },
+              ],
+              headers: [{ name: "X_TEAM", value: "team-secret", sensitive: true }],
+            },
+          } as SharedMcpServerMap,
+        },
+        providerInstances: {
+          [instanceId]: {
+            driver: ProviderDriverKind.make("codex"),
+            shared: {
+              mcpServers: {
+                "instance-db": {
+                  transport: "http",
+                  url: "https://instance.example/mcp",
+                  headers: [{ name: "AUTHORIZATION", value: "inst-secret", sensitive: true }],
+                },
+              } as SharedMcpServerMap,
+            },
+          },
+        },
+      });
+
+      // The caller gets the materialized values, marked as redacted on the wire.
+      const environmentWide = serverAt(next.sharedAgentResources.mcpServers, "team-db");
+      assert.equal(
+        environmentWide?.env?.find((variable) => variable.name === "DB_TOKEN")?.value,
+        "db-secret",
+      );
+      assert.isTrue(
+        environmentWide?.env?.find((variable) => variable.name === "DB_TOKEN")?.valueRedacted,
+      );
+      assert.equal(
+        serverAt(next.providerInstances[instanceId]?.shared?.mcpServers, "instance-db")
+          ?.headers?.[0]?.value,
+        "inst-secret",
+      );
+
+      // settings.json holds the marker, never the secret.
+      const raw = yield* fileSystem.readFileString(serverConfig.settingsPath);
+      assert.notInclude(raw, "db-secret");
+      assert.notInclude(raw, "team-secret");
+      assert.notInclude(raw, "inst-secret");
+      const persisted = JSON.parse(raw);
+      assert.deepEqual(persisted.sharedAgentResources.mcpServers["team-db"].env, [
+        { name: "DB_TOKEN", value: "", sensitive: true, valueRedacted: true },
+        { name: "DB_HOST", value: "db.internal", sensitive: false },
+      ]);
+      assert.deepEqual(
+        persisted.providerInstances.codex_shared.shared.mcpServers["instance-db"].headers,
+        [{ name: "AUTHORIZATION", value: "", sensitive: true, valueRedacted: true }],
+      );
+
+      // Saving the redacted marker back restores the stored secret.
+      const roundTripped = yield* serverSettings.updateSettings({
+        sharedAgentResources: {
+          mcpServers: {
+            "team-db": {
+              transport: "stdio",
+              command: "team-db-mcp",
+              env: [
+                { name: "DB_TOKEN", value: "", sensitive: true, valueRedacted: true },
+                { name: "DB_HOST", value: "db.internal", sensitive: false },
+              ],
+              headers: [{ name: "X_TEAM", value: "", sensitive: true, valueRedacted: true }],
+            },
+          } as SharedMcpServerMap,
+        },
+      });
+      assert.equal(
+        serverAt(roundTripped.sharedAgentResources.mcpServers, "team-db")?.env?.[0]?.value,
+        "db-secret",
+      );
     }).pipe(Effect.provide(layerServerSettings())),
   );
 });

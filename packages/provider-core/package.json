@@ -143,6 +143,10 @@
       "types": "./src/server/snapshotProbe.ts",
       "import": "./src/server/snapshotProbe.ts"
     },
+    "./server/sharedAgentResources": {
+      "types": "./src/server/sharedAgentResources.ts",
+      "import": "./src/server/sharedAgentResources.ts"
+    },
     "./server/snapshotSettings": {
       "types": "./src/server/snapshotSettings.ts",
       "import": "./src/server/snapshotSettings.ts"

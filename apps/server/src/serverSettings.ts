@@ -21,6 +21,10 @@ import {
   ProjectSettingsOverrides,
   type ProviderInstanceConfig,
   type ProviderInstanceEnvironmentVariable,
+  type SharedAgentResources,
+  type SharedMcpServer,
+  type SharedMcpServerMap,
+  type SharedResourceVariable,
   type UsageLimitSourceConfig,
   type ProviderInstanceMutation,
   defaultInstanceIdForDriver,
@@ -154,6 +158,24 @@ function providerEnvironmentSecretName(input: {
 }
 
 /**
+ * Secret-store key for one `env`/`headers` value of a shared MCP server. The
+ * resource id is the map key; `scope` distinguishes environment-level entries
+ * (`environment`) from per-instance additions (`instance:<id>`), and `field`
+ * separates a server's `env` from its `headers`.
+ */
+function sharedResourceSecretName(input: {
+  readonly scope: string;
+  readonly resourceId: string;
+  readonly field: "env" | "headers";
+  readonly name: string;
+}): string {
+  const key = [input.scope, input.resourceId, input.field, input.name]
+    .map((part) => Buffer.from(part, "utf8").toString("base64url"))
+    .join("-");
+  return `shared-resource-${key}`;
+}
+
+/**
  * On disk a hub key or Bitbucket token is replaced by this marker and the
  * real value lives in the secret store, mirroring provider environment
  * secrets. A client that sends the marker back means "keep what you have".
@@ -220,18 +242,78 @@ function redactProviderEnvironmentVariable(
   };
 }
 
-export function redactServerSettingsForClient(settings: ServerSettings): ServerSettings {
-  const providerInstances = Object.fromEntries(
-    Object.entries(settings.providerInstances).map(([instanceId, instance]) => [
-      instanceId,
-      instance.environment
-        ? {
-            ...instance,
-            environment: instance.environment.map(redactProviderEnvironmentVariable),
-          }
-        : instance,
+function redactSharedResourceVariable(variable: SharedResourceVariable): SharedResourceVariable {
+  if (!variable.sensitive) {
+    const { valueRedacted: _omit, ...rest } = variable;
+    return rest;
+  }
+  return {
+    ...variable,
+    value: "",
+    ...(variable.value.length > 0 || variable.valueRedacted ? { valueRedacted: true } : {}),
+  };
+}
+
+/**
+ * Map every `env`/`headers` value of every MCP server in a shared map, keeping
+ * the `field` so callers can key secrets separately.
+ */
+function mapSharedMcpServerVariables(
+  servers: SharedMcpServerMap | undefined,
+  map: (
+    serverId: string,
+    field: "env" | "headers",
+    variable: SharedResourceVariable,
+  ) => SharedResourceVariable,
+): SharedMcpServerMap | undefined {
+  if (servers === undefined) return undefined;
+  return Object.fromEntries(
+    Object.entries(servers).map(([serverId, server]) => [
+      serverId,
+      {
+        ...server,
+        ...(server.env ? { env: server.env.map((value) => map(serverId, "env", value)) } : {}),
+        ...(server.headers
+          ? { headers: server.headers.map((value) => map(serverId, "headers", value)) }
+          : {}),
+      },
     ]),
   );
+}
+
+export function redactServerSettingsForClient(settings: ServerSettings): ServerSettings {
+  const providerInstances = Object.fromEntries(
+    Object.entries(settings.providerInstances).map(([instanceId, instance]) => {
+      const environment = instance.environment
+        ? instance.environment.map(redactProviderEnvironmentVariable)
+        : undefined;
+      const sharedMcpServers = mapSharedMcpServerVariables(
+        instance.shared?.mcpServers,
+        (_id, _field, variable) => redactSharedResourceVariable(variable),
+      );
+      if (environment === undefined && sharedMcpServers === undefined) {
+        return [instanceId, instance];
+      }
+      return [
+        instanceId,
+        {
+          ...instance,
+          ...(environment ? { environment } : {}),
+          ...(sharedMcpServers && instance.shared
+            ? { shared: { ...instance.shared, mcpServers: sharedMcpServers } }
+            : {}),
+        },
+      ];
+    }),
+  );
+  const sharedAgentResources: SharedAgentResources = {
+    ...settings.sharedAgentResources,
+    mcpServers:
+      mapSharedMcpServerVariables(
+        settings.sharedAgentResources.mcpServers,
+        (_id, _field, variable) => redactSharedResourceVariable(variable),
+      ) ?? {},
+  };
   // The hub key is a bearer secret; clients only need to know one is set.
   const usageLimitSources = Object.fromEntries(
     Object.entries(settings.usageLimitSources).map(([id, source]) => [
@@ -245,7 +327,13 @@ export function redactServerSettingsForClient(settings: ServerSettings): ServerS
   const sourceControlHosts = mapSlotValues(settings.sourceControlHosts, (_slot, value) =>
     redactSecret(value),
   );
-  return { ...settings, providerInstances, usageLimitSources, sourceControlHosts };
+  return {
+    ...settings,
+    providerInstances,
+    usageLimitSources,
+    sourceControlHosts,
+    sharedAgentResources,
+  };
 }
 
 export function applyProviderInstanceMutation(
@@ -985,39 +1073,108 @@ const make = Effect.gen(function* () {
     settings: ServerSettings,
   ): Effect.Effect<ServerSettings, ServerSettingsError> =>
     Effect.gen(function* () {
-      const providerInstances: Record<string, ProviderInstanceConfig> = {
-        ...settings.providerInstances,
-      };
-      for (const [instanceId, instance] of Object.entries(settings.providerInstances)) {
-        if (!instance.environment) continue;
-        const environment: ProviderInstanceEnvironmentVariable[] = [];
-        for (const variable of instance.environment) {
-          if (!variable.sensitive || !variable.valueRedacted) {
-            environment.push(variable);
-            continue;
-          }
+      const materializeSharedVariable = (
+        scope: string,
+        resourceId: string,
+        field: "env" | "headers",
+        variable: SharedResourceVariable,
+      ): Effect.Effect<SharedResourceVariable, ServerSettingsError> =>
+        Effect.gen(function* () {
+          if (!variable.sensitive || !variable.valueRedacted) return variable;
           const secret = yield* secretStore
-            .get(providerEnvironmentSecretName({ instanceId, name: variable.name }))
+            .get(sharedResourceSecretName({ scope, resourceId, field, name: variable.name }))
             .pipe(
               Effect.mapError(
                 (cause) =>
                   new ServerSettingsError({
                     settingsPath,
                     operation: "read-secret",
-                    providerInstanceId: instanceId,
                     environmentVariable: variable.name,
                     cause,
                   }),
               ),
             );
-          environment.push({
+          return {
             ...variable,
             value: Option.isSome(secret) ? textDecoder.decode(secret.value) : "",
-          });
-        }
+          };
+        });
+
+      const materializeSharedServers = (
+        servers: SharedMcpServerMap | undefined,
+        scope: string,
+      ): Effect.Effect<SharedMcpServerMap | undefined, ServerSettingsError> =>
+        Effect.gen(function* () {
+          if (servers === undefined) return undefined;
+          const entries: Array<readonly [string, SharedMcpServer]> = [];
+          for (const [resourceId, server] of Object.entries(servers)) {
+            const env = server.env
+              ? yield* Effect.forEach(server.env, (variable) =>
+                  materializeSharedVariable(scope, resourceId, "env", variable),
+                )
+              : undefined;
+            const headers = server.headers
+              ? yield* Effect.forEach(server.headers, (variable) =>
+                  materializeSharedVariable(scope, resourceId, "headers", variable),
+                )
+              : undefined;
+            entries.push([
+              resourceId,
+              {
+                ...server,
+                ...(env ? { env } : {}),
+                ...(headers ? { headers } : {}),
+              },
+            ]);
+          }
+          return Object.fromEntries(entries) as SharedMcpServerMap;
+        });
+
+      const providerInstances: Record<string, ProviderInstanceConfig> = {
+        ...settings.providerInstances,
+      };
+      for (const [instanceId, instance] of Object.entries(settings.providerInstances)) {
+        const environment = instance.environment
+          ? yield* Effect.forEach(
+              instance.environment,
+              (variable): Effect.Effect<ProviderInstanceEnvironmentVariable, ServerSettingsError> =>
+                Effect.gen(function* () {
+                  if (!variable.sensitive || !variable.valueRedacted) return variable;
+                  const secret = yield* secretStore
+                    .get(providerEnvironmentSecretName({ instanceId, name: variable.name }))
+                    .pipe(
+                      Effect.mapError(
+                        (cause) =>
+                          new ServerSettingsError({
+                            settingsPath,
+                            operation: "read-secret",
+                            providerInstanceId: instanceId,
+                            environmentVariable: variable.name,
+                            cause,
+                          }),
+                      ),
+                    );
+                  return {
+                    ...variable,
+                    value: Option.isSome(secret) ? textDecoder.decode(secret.value) : "",
+                  };
+                }),
+            )
+          : undefined;
+        const sharedMcpServers = instance.shared
+          ? yield* materializeSharedServers(instance.shared.mcpServers, `instance:${instanceId}`)
+          : undefined;
+        const shared = instance.shared
+          ? {
+              ...instance.shared,
+              ...(sharedMcpServers !== undefined ? { mcpServers: sharedMcpServers } : {}),
+            }
+          : undefined;
+        if (environment === undefined && shared === undefined) continue;
         providerInstances[instanceId] = {
           ...instance,
-          environment,
+          ...(environment ? { environment } : {}),
+          ...(shared ? { shared } : {}),
         } satisfies ProviderInstanceConfig;
       }
       const usageLimitSources: Record<string, UsageLimitSourceConfig> = {};
@@ -1062,6 +1219,14 @@ const make = Effect.gen(function* () {
             ? (storedSecrets.get(sourceControlHostSecretName(slot)) ?? "")
             : value,
         ),
+        sharedAgentResources: {
+          ...settings.sharedAgentResources,
+          mcpServers:
+            (yield* materializeSharedServers(
+              settings.sharedAgentResources.mcpServers,
+              "environment",
+            )) ?? {},
+        },
       };
     });
 
@@ -1099,6 +1264,115 @@ const make = Effect.gen(function* () {
       const changes: SecretChange[] = [];
 
       const nextSecretKeys = new Set<string>();
+
+      /**
+       * Persist one shared MCP server map's `env`/`headers`, mirroring the
+       * provider-environment semantics: a plaintext value moves into the
+       * secret store, the redaction marker keeps what is saved, and secrets
+       * that no longer appear are removed.
+       */
+      const persistSharedServers = (
+        servers: SharedMcpServerMap | undefined,
+        scope: string,
+        previousServers: SharedMcpServerMap | undefined,
+      ): SharedMcpServerMap | undefined => {
+        if (servers === undefined) return undefined;
+        const previousById = previousServers as Record<string, SharedMcpServer> | undefined;
+        const persistField = (
+          resourceId: string,
+          field: "env" | "headers",
+          variables: ReadonlyArray<SharedResourceVariable> | undefined,
+        ): ReadonlyArray<SharedResourceVariable> | undefined => {
+          if (variables === undefined) return undefined;
+          return variables.map((variable) => {
+            const secretName = sharedResourceSecretName({
+              scope,
+              resourceId,
+              field,
+              name: variable.name,
+            });
+            if (!variable.sensitive) {
+              changes.push({
+                kind: "remove",
+                secretName,
+                operation: "remove-secret",
+                environmentVariable: variable.name,
+              });
+              return redactSharedResourceVariable(variable);
+            }
+            nextSecretKeys.add(secretName);
+            const previous = variable.valueRedacted
+              ? previousById?.[resourceId]?.[field]?.findLast(
+                  (entry) => entry.name === variable.name,
+                )
+              : undefined;
+            const inlineValue =
+              previous?.sensitive && !previous.valueRedacted && previous.value.length > 0
+                ? previous.value
+                : undefined;
+            const value = inlineValue ?? variable.value;
+            if (!variable.valueRedacted || inlineValue !== undefined) {
+              if (value.length > 0) {
+                changes.push({
+                  kind: "write",
+                  secretName,
+                  value: textEncoder.encode(value),
+                  environmentVariable: variable.name,
+                });
+                return { ...variable, value: "", valueRedacted: true };
+              }
+              changes.push({
+                kind: "remove",
+                secretName,
+                operation: "remove-secret",
+                environmentVariable: variable.name,
+              });
+              const { valueRedacted: _omit, ...rest } = variable;
+              return rest;
+            }
+            return redactSharedResourceVariable(variable);
+          });
+        };
+        return Object.fromEntries(
+          Object.entries(servers).map(([resourceId, server]) => [
+            resourceId,
+            {
+              ...server,
+              ...(server.env ? { env: persistField(resourceId, "env", server.env) } : {}),
+              ...(server.headers
+                ? { headers: persistField(resourceId, "headers", server.headers) }
+                : {}),
+            },
+          ]),
+        ) as SharedMcpServerMap;
+      };
+
+      const removeStaleSharedServers = (servers: SharedMcpServerMap | undefined, scope: string) => {
+        for (const [resourceId, server] of Object.entries(
+          (servers as Record<string, SharedMcpServer> | undefined) ?? {},
+        )) {
+          for (const field of ["env", "headers"] as const) {
+            for (const variable of server[field] ?? []) {
+              if (!variable.sensitive) continue;
+              const secretName = sharedResourceSecretName({
+                scope,
+                resourceId,
+                field,
+                name: variable.name,
+              });
+              if (nextSecretKeys.has(secretName)) continue;
+              if (changes.some((change) => change.secretName === secretName)) continue;
+              changes.push({
+                kind: "remove",
+                secretName,
+                operation: "remove-stale-secret",
+                environmentVariable: variable.name,
+              });
+            }
+          }
+        }
+      };
+
       for (const [instanceId, instance] of Object.entries(next.providerInstances)) {
         if (!instance.environment) continue;
         const environment: ProviderInstanceEnvironmentVariable[] = [];
@@ -1175,6 +1449,35 @@ const make = Effect.gen(function* () {
         }
       }
 
+      // Instance-local shared MCP servers: redact + persist their secrets, and
+      // rewrite the instance entry so its on-disk form carries the marker.
+      for (const [instanceId, instance] of Object.entries(next.providerInstances)) {
+        if (!instance.shared?.mcpServers) continue;
+        const mcpServers = persistSharedServers(
+          instance.shared.mcpServers,
+          `instance:${instanceId}`,
+          current.providerInstances[ProviderInstanceId.make(instanceId)]?.shared?.mcpServers,
+        );
+        providerInstances[instanceId] = {
+          ...instance,
+          shared: { ...instance.shared, ...(mcpServers ? { mcpServers } : {}) },
+        } satisfies ProviderInstanceConfig;
+      }
+
+      const sharedAgentResources: SharedAgentResources = {
+        ...next.sharedAgentResources,
+        mcpServers:
+          persistSharedServers(
+            next.sharedAgentResources.mcpServers,
+            "environment",
+            current.sharedAgentResources.mcpServers,
+          ) ?? {},
+      };
+      removeStaleSharedServers(current.sharedAgentResources.mcpServers, "environment");
+      for (const [instanceId, instance] of Object.entries(current.providerInstances)) {
+        removeStaleSharedServers(instance.shared?.mcpServers, `instance:${instanceId}`);
+      }
+
       const usageLimitSources: Record<string, UsageLimitSourceConfig> = {};
       for (const [sourceId, source] of Object.entries(next.usageLimitSources)) {
         const secretName = usageLimitSourceSecretName(sourceId);
@@ -1241,6 +1544,7 @@ const make = Effect.gen(function* () {
           providerInstances: providerInstances as ServerSettings["providerInstances"],
           usageLimitSources: usageLimitSources as ServerSettings["usageLimitSources"],
           sourceControlHosts,
+          sharedAgentResources,
         },
         changes,
       };

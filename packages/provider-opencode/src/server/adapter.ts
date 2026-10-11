@@ -8,6 +8,8 @@ import type {
   Session as OpenCodeSession,
   Todo as OpenCodeTodo,
   ToolPart,
+  McpLocalConfig,
+  McpRemoteConfig,
 } from "@opencode-ai/sdk/v2";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
@@ -34,6 +36,7 @@ import {
   type ProviderRequestKind,
   type ProviderSessionId,
   type RuntimeRequestId,
+  type SharedMcpServer,
   type ThreadId,
 } from "@t3tools/contracts";
 import { OpenCodeSettings } from "../settings.ts";
@@ -57,6 +60,10 @@ import * as Stream from "effect/Stream";
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import { mcpToolPresentation } from "@t3tools/provider-core/server/mcpToolPresentation";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
+import {
+  sharedMcpEnvRecord,
+  sharedMcpHeaderRecord,
+} from "@t3tools/provider-core/server/sharedAgentResources";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import {
   structuralProtocolMethod,
@@ -936,6 +943,39 @@ function unwrapData<A>(operation: string, result: { readonly data?: A }): NonNul
   return result.data as NonNullable<A>;
 }
 
+/**
+ * Translate one shared server into the OpenCode SDK's MCP config. OpenCode
+ * takes the program and its arguments as one `command` array and names the
+ * environment block `environment`; it has no SSE transport, so `http` is the
+ * only remote shape.
+ */
+function openCodeSharedMcpConfig(
+  server: SharedMcpServer,
+):
+  | Pick<McpLocalConfig, "type" | "command" | "environment">
+  | Pick<McpRemoteConfig, "type" | "url" | "headers" | "oauth">
+  | undefined {
+  if (server.transport === "stdio") {
+    if (server.command === undefined) return undefined;
+    return {
+      type: "local",
+      command: [server.command, ...(server.args ?? [])],
+      ...(server.env !== undefined && server.env.length > 0
+        ? { environment: sharedMcpEnvRecord(server) }
+        : {}),
+    };
+  }
+  if (server.url === undefined) return undefined;
+  return {
+    type: "remote",
+    url: server.url,
+    ...(server.headers !== undefined && server.headers.length > 0
+      ? { headers: sharedMcpHeaderRecord(server) }
+      : {}),
+    oauth: false,
+  };
+}
+
 export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function* (
   options: OpenCodeAdapterV2Options,
 ) {
@@ -983,6 +1023,13 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
               },
             }),
           );
+          for (const { id, server } of mcpSession.sharedMcpServers ?? []) {
+            const config = openCodeSharedMcpConfig(server);
+            if (config === undefined) continue;
+            yield* OpenCodeRuntime.runOpenCodeSdk("mcp.add", () =>
+              client.mcp.add({ name: id, config }),
+            );
+          }
         }
 
         const now = yield* DateTime.now;

@@ -23,6 +23,7 @@ import {
   getSubagentMessages,
   query,
   type Options as ClaudeQueryOptions,
+  type McpServerConfig as ClaudeMcpServerConfig,
   type PermissionMode,
   type PermissionResult,
   type PermissionUpdate,
@@ -79,6 +80,7 @@ import {
   type ProviderUserInputAnswers,
   type ProviderThreadId,
   type RunId,
+  type SharedMcpServer,
   type ThreadId,
 } from "@t3tools/contracts";
 
@@ -138,6 +140,10 @@ import {
   normalizeMcpText,
 } from "@t3tools/provider-core/server/mcpToolPresentation";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
+import {
+  sharedMcpEnvRecord,
+  sharedMcpHeaderRecord,
+} from "@t3tools/provider-core/server/sharedAgentResources";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import {
@@ -1125,18 +1131,56 @@ export function claudeMcpQueryOverrides(input: {
   const mcpAllowedTools = input.readOnlySandbox
     ? CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS
     : [CLAUDE_T3_MCP_TOOL_WILDCARD];
-  return {
-    allowedTools: Array.from(new Set([...(input.allowedTools ?? []), ...mcpAllowedTools])),
-    mcpServers: {
-      "t3-code": {
-        type: "http",
-        url: session.endpoint,
-        headers: {
-          Authorization: session.authorizationHeader,
-        },
-        timeout: CLAUDE_T3_MCP_TOOL_TIMEOUT_MS,
+  const mcpServers: Record<string, ClaudeMcpServerConfig> = {
+    "t3-code": {
+      type: "http",
+      url: session.endpoint,
+      headers: {
+        Authorization: session.authorizationHeader,
       },
+      timeout: CLAUDE_T3_MCP_TOOL_TIMEOUT_MS,
     },
+  };
+  // A configured server carries the user's own trust, so its tools are
+  // pre-approved in normal modes; headless modes deny anything unapproved.
+  // A read-only sandbox withholds that blanket approval: unlike T3's own
+  // server, a user server has no read-only tools to approve selectively, and
+  // granting every tool would let a "read-only" session write.
+  const sharedAllowedTools: string[] = [];
+  for (const { id, server } of session.sharedMcpServers ?? []) {
+    const converted = claudeSharedMcpServer(server);
+    if (converted === undefined) continue;
+    mcpServers[id] = converted;
+    if (!input.readOnlySandbox) sharedAllowedTools.push(`mcp__${id}__*`);
+  }
+  return {
+    allowedTools: Array.from(
+      new Set([...(input.allowedTools ?? []), ...mcpAllowedTools, ...sharedAllowedTools]),
+    ),
+    mcpServers,
+  };
+}
+
+/** Translate one shared server into the Claude SDK's `McpServerConfig`. */
+function claudeSharedMcpServer(server: SharedMcpServer): ClaudeMcpServerConfig | undefined {
+  if (server.transport === "stdio") {
+    if (server.command === undefined) return undefined;
+    return {
+      type: "stdio",
+      command: server.command,
+      ...(server.args !== undefined && server.args.length > 0 ? { args: [...server.args] } : {}),
+      ...(server.env !== undefined && server.env.length > 0
+        ? { env: sharedMcpEnvRecord(server) }
+        : {}),
+    };
+  }
+  if (server.url === undefined) return undefined;
+  return {
+    type: server.transport,
+    url: server.url,
+    ...(server.headers !== undefined && server.headers.length > 0
+      ? { headers: sharedMcpHeaderRecord(server) }
+      : {}),
   };
 }
 

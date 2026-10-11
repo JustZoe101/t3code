@@ -693,6 +693,28 @@ function acpMcpContext(
   // every ACP session gets the `t3 acp-mcp-bridge` stdio server, which
   // forwards JSON-RPC to T3's authenticated MCP endpoint. The credential
   // travels via environment variables, never the command line.
+  //
+  // User-configured shared servers ride the same stdio baseline; the resolve
+  // step already withholds any that this agent cannot carry.
+  const sharedServers: EffectAcpSchema.McpServer[] = (session.sharedMcpServers ?? []).flatMap(
+    ({ id, transport, server }) => {
+      if (transport !== "stdio" || server.command === undefined) return [];
+      return [
+        {
+          name: id,
+          command: server.command,
+          ...(server.args !== undefined && server.args.length > 0
+            ? { args: [...server.args] }
+            : {}),
+          ...(server.env !== undefined && server.env.length > 0
+            ? {
+                env: server.env.map((variable) => ({ name: variable.name, value: variable.value })),
+              }
+            : {}),
+        },
+      ];
+    },
+  );
   return {
     servers: [
       {
@@ -705,6 +727,7 @@ function acpMcpContext(
           { name: "T3_ACP_MCP_AUTHORIZATION", value: session.authorizationHeader },
         ],
       },
+      ...sharedServers,
     ],
     acpServers: [{ type: "acp", name: "t3-code", serverId: "t3-code" }],
     endpoint: session.endpoint,

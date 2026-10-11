@@ -27,6 +27,7 @@ import {
   type OrchestrationV2Subagent,
   type OrchestrationV2TurnItem,
   type ProviderInstanceId,
+  type SharedMcpServer,
   type ThreadId,
 } from "@t3tools/contracts";
 import { CursorSettings } from "../settings.ts";
@@ -45,6 +46,10 @@ import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import { mcpToolPresentation } from "@t3tools/provider-core/server/mcpToolPresentation";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
+import {
+  sharedMcpEnvRecord,
+  sharedMcpHeaderRecord,
+} from "@t3tools/provider-core/server/sharedAgentResources";
 import { CursorTransportFailure } from "./transportFailure.ts";
 import { cursorSdkModelSelection } from "./sdkModel.ts";
 import {
@@ -207,7 +212,7 @@ export function cursorMcpServers(
   if (session === undefined) {
     return undefined;
   }
-  return {
+  const servers: Record<string, McpServerConfig> = {
     "t3-code": {
       type: "http",
       url: session.endpoint,
@@ -215,6 +220,34 @@ export function cursorMcpServers(
         Authorization: session.authorizationHeader,
       },
     },
+  };
+  for (const { id, server } of session.sharedMcpServers ?? []) {
+    const converted = cursorSharedMcpServer(server);
+    if (converted !== undefined) servers[id] = converted;
+  }
+  return servers;
+}
+
+/** Translate one shared server into Cursor's `McpServerConfig` union. */
+function cursorSharedMcpServer(server: SharedMcpServer): McpServerConfig | undefined {
+  if (server.transport === "stdio") {
+    if (server.command === undefined) return undefined;
+    return {
+      type: "stdio",
+      command: server.command,
+      ...(server.args !== undefined && server.args.length > 0 ? { args: [...server.args] } : {}),
+      ...(server.env !== undefined && server.env.length > 0
+        ? { env: sharedMcpEnvRecord(server) }
+        : {}),
+    };
+  }
+  if (server.url === undefined) return undefined;
+  return {
+    type: server.transport,
+    url: server.url,
+    ...(server.headers !== undefined && server.headers.length > 0
+      ? { headers: sharedMcpHeaderRecord(server) }
+      : {}),
   };
 }
 

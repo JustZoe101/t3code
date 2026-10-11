@@ -61,6 +61,7 @@ import type {
   ProviderInstanceId,
   RuntimeMode,
   RuntimeRequestId,
+  SharedMcpServer,
   ThreadId,
 } from "@t3tools/contracts";
 import * as CodexClient from "effect-codex-app-server/client";
@@ -109,6 +110,10 @@ import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEve
 import { codexAppServerArgs, resolveCodexLaunchArgs } from "../../provider/codexLaunchArgs.ts";
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
+import {
+  sharedMcpEnvRecord,
+  sharedMcpHeaderRecord,
+} from "@t3tools/provider-core/server/sharedAgentResources";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import {
   MCP_APP_EXTENSION_ID,
@@ -1307,6 +1312,11 @@ export function codexThreadRuntimeParams(input: {
   readonly config: Readonly<Record<string, Schema.Json>>;
 } {
   const { mcpSession } = input;
+  const sharedMcpServers: Record<string, Schema.Json> = {};
+  for (const { id, server } of mcpSession?.sharedMcpServers ?? []) {
+    const converted = codexSharedMcpServer(server);
+    if (converted !== undefined) sharedMcpServers[id] = converted;
+  }
   return {
     ...(input.runtimePolicy?.cwd == null ? {} : { cwd: input.runtimePolicy.cwd }),
     ...(input.modelSelection === undefined ? {} : { model: input.modelSelection.model }),
@@ -1322,9 +1332,31 @@ export function codexThreadRuntimeParams(input: {
                   Authorization: mcpSession.authorizationHeader,
                 },
               },
+              ...sharedMcpServers,
             },
           }),
     },
+  };
+}
+
+/** Translate one shared server into Codex's `mcp_servers` entry shape. */
+function codexSharedMcpServer(server: SharedMcpServer): Schema.Json | undefined {
+  if (server.transport === "stdio") {
+    if (server.command === undefined) return undefined;
+    return {
+      command: server.command,
+      ...(server.args !== undefined && server.args.length > 0 ? { args: [...server.args] } : {}),
+      ...(server.env !== undefined && server.env.length > 0
+        ? { env: sharedMcpEnvRecord(server) }
+        : {}),
+    };
+  }
+  if (server.url === undefined) return undefined;
+  return {
+    url: server.url,
+    ...(server.headers !== undefined && server.headers.length > 0
+      ? { http_headers: sharedMcpHeaderRecord(server) }
+      : {}),
   };
 }
 

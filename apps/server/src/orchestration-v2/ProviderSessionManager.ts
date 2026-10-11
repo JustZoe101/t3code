@@ -42,6 +42,10 @@ import {
 import { ProviderWorkspaceMissingError } from "../provider/Errors.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
+import {
+  resolveSharedMcpServers,
+  type ResolvedSharedMcpServer,
+} from "@t3tools/provider-core/server/sharedAgentResources";
 import * as ServerSettings from "../serverSettings.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as EventSink from "./EventSink.ts";
@@ -398,6 +402,32 @@ export const layerWithOptions = (
           );
         },
       );
+      /**
+       * Shared MCP servers this instance should carry, resolved from the
+       * environment-wide registry plus the instance's steering. Optional
+       * settings (the hand-assembled test layers) yield no shared servers.
+       * A settings read failure is swallowed: the provider still starts with
+       * T3's own MCP server, and the user sees the missing servers in the UI.
+       */
+      const resolveSharedMcp = (
+        providerInstanceId: ProviderInstanceId,
+      ): Effect.Effect<ReadonlyArray<ResolvedSharedMcpServer>> =>
+        Option.isNone(serverSettings)
+          ? Effect.succeed([])
+          : serverSettings.value.getSettings.pipe(
+              Effect.map((settings) => {
+                const instance = settings.providerInstances[providerInstanceId];
+                return resolveSharedMcpServers({
+                  resources: settings.sharedAgentResources,
+                  instance: {
+                    driver: instance?.driver ?? "",
+                    shared: instance?.shared,
+                  },
+                }).servers;
+              }),
+              Effect.orElseSucceed(() => []),
+            );
+
       const layerScope = yield* Effect.scope;
       // Ctrl+C, or a stop that signals the whole process group, reaches the
       // provider CLIs with the server. They report their own background work
@@ -495,6 +525,9 @@ export const layerWithOptions = (
                 >(["orchestration", "worktree", "pull-requests"]);
                 if (browserToolsAvailable) capabilities.add("preview");
                 if (deviceToolsAvailable) capabilities.add("device");
+                // Refresh on every prepare so a settings edit is picked up when
+                // the thread re-attaches, without rotating the credential.
+                const sharedMcpServers = yield* resolveSharedMcp(providerInstanceId);
                 const existing = yield* mcpSessions.read(threadId);
                 if (existing !== undefined) {
                   // Reserve before the async resolve so a release cannot
@@ -521,6 +554,7 @@ export const layerWithOptions = (
                     resolved.capabilities.has("preview") === browserToolsAvailable &&
                     resolved.capabilities.has("device") === deviceToolsAvailable
                   ) {
+                    yield* mcpSessions.set({ ...existing, sharedMcpServers });
                     return { mcpCredentialId: existing.providerSessionId, issued: false };
                   }
                   dropMcpCredentialReservation(threadId, existing.providerSessionId);
@@ -532,7 +566,7 @@ export const layerWithOptions = (
                   browserToolsAvailable,
                   capabilities,
                 });
-                yield* mcpSessions.set(credential.config);
+                yield* mcpSessions.set({ ...credential.config, sharedMcpServers });
                 reserveMcpCredential(threadId, credential.config.providerSessionId);
                 return { mcpCredentialId: credential.config.providerSessionId, issued: true };
               }),

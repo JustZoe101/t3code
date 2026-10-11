@@ -55,6 +55,7 @@ import {
   type ProviderInstanceId,
   type RunId,
   type RuntimeRequestId,
+  type SharedMcpServer,
 } from "@t3tools/contracts";
 import type * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
@@ -76,6 +77,10 @@ import * as OpenCode2Client from "./OpenCode2Client.ts";
 import * as OpenCode2Server from "./OpenCode2Server.ts";
 import * as OpenCodeRuntime from "../OpenCodeRuntime.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
+import {
+  sharedMcpEnvRecord,
+  sharedMcpHeaderRecord,
+} from "@t3tools/provider-core/server/sharedAgentResources";
 import { buildRuntimeInstructions } from "@t3tools/provider-core/server/runtimeInstructions";
 import { t3OrchestrationSystemPrompt } from "@t3tools/provider-core/server/orchestrationInstructions";
 import { SKILL_MENTION_PATTERN } from "@t3tools/shared/composerInlineTokens";
@@ -334,6 +339,33 @@ interface OpenBlock {
   text: string;
 }
 
+/**
+ * Translate one shared server into OpenCode 2's schematized MCP config.
+ * OpenCode takes the program and its arguments as one `command` array and
+ * names the environment block `environment`; it has no SSE transport.
+ */
+function openCodeV2SharedMcpConfig(server: SharedMcpServer): Mcp.ServerConfig | undefined {
+  if (server.transport === "stdio") {
+    if (server.command === undefined) return undefined;
+    return new Mcp.LocalConfig({
+      type: "local",
+      command: [server.command, ...(server.args ?? [])],
+      ...(server.env !== undefined && server.env.length > 0
+        ? { environment: sharedMcpEnvRecord(server) }
+        : {}),
+    });
+  }
+  if (server.url === undefined) return undefined;
+  return new Mcp.RemoteConfig({
+    type: "remote",
+    url: server.url,
+    ...(server.headers !== undefined && server.headers.length > 0
+      ? { headers: sharedMcpHeaderRecord(server) }
+      : {}),
+    oauth: false,
+  });
+}
+
 interface ThreadState {
   readonly sessionId: string;
   providerThread: OrchestrationV2ProviderThread;
@@ -418,6 +450,12 @@ interface ThreadState {
   mcp:
     | { readonly name: string; readonly directory: string; readonly credential: string }
     | undefined;
+  /**
+   * User-configured shared MCP servers this thread registered, with the
+   * directory each was registered for. Registrations are shared per
+   * (directory, name) across threads and removed when the last holder unloads.
+   */
+  mcpShared: Array<{ readonly name: string; readonly directory: string }>;
   instructions: string | undefined;
 }
 
@@ -974,6 +1012,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
       stoppedChildren: new Set(),
       strandedSteers: new Set(),
       mcp: undefined,
+      mcpShared: [],
       instructions: undefined,
     });
 
@@ -2952,7 +2991,11 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
       currentScope = scope;
       yield* Scope.close(previous, Exit.void);
       // A restarted server forgot T3's MCP servers; the next turn adds them again.
-      for (const state of threads.values()) state.mcp = undefined;
+      for (const state of threads.values()) {
+        state.mcp = undefined;
+        state.mcpShared = [];
+      }
+      sharedMcpRefs.clear();
       yield* lock.withPermit(reconcile).pipe(Effect.timeout(RECONCILE_TIMEOUT));
       return stream;
     }).pipe(
@@ -3348,14 +3391,50 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
         client.mcp.remove({ server: mcp.name, location: { directory: mcp.directory } }),
       ).pipe(Effect.timeout("5 seconds"), Effect.ignore({ log: true }));
 
+    /**
+     * Shared user-configured servers are registered per (directory, name) and
+     * refcounted across threads: two sessions in one directory share one
+     * registration, and it is removed when the last of them stops wanting it.
+     */
+    const sharedMcpRefs = new Map<
+      string,
+      { readonly name: string; readonly directory: string; refs: number }
+    >();
+    const sharedMcpKey = (directory: string, name: string) => `${directory}\u0000${name}`;
+    const addSharedMcp = (name: string, directory: string, config: Mcp.ServerConfig) =>
+      Effect.suspend(() => client.mcp.add({ server: name, location: { directory }, config })).pipe(
+        Effect.timeout(INVENTORY_TIMEOUT),
+        Effect.as(true),
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Could not add a shared MCP server to OpenCode.", cause).pipe(
+            Effect.as(false),
+          ),
+        ),
+      );
+    const releaseSharedMcp = (name: string, directory: string) =>
+      Effect.suspend(() => {
+        const key = sharedMcpKey(directory, name);
+        const entry = sharedMcpRefs.get(key);
+        if (entry === undefined) return Effect.void;
+        if (entry.refs > 1) {
+          sharedMcpRefs.set(key, { ...entry, refs: entry.refs - 1 });
+          return Effect.void;
+        }
+        sharedMcpRefs.delete(key);
+        return removeMcp({ name, directory });
+      });
+
     // T3's MCP registrations outlive a session only on an external server; a
     // spawned one forgets them when it stops.
     yield* Effect.addFinalizer(() =>
       Effect.forEach(
-        [...threads.values()].flatMap((state) => (state.mcp === undefined ? [] : [state.mcp])),
+        [
+          ...[...threads.values()].flatMap((state) => (state.mcp === undefined ? [] : [state.mcp])),
+          ...[...sharedMcpRefs.values()].map(({ name, directory }) => ({ name, directory })),
+        ],
         removeMcp,
         { concurrency: 8, discard: true },
-      ),
+      ).pipe(Effect.ensuring(Effect.sync(() => sharedMcpRefs.clear()))),
     );
 
     /**
@@ -3411,6 +3490,47 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
             ),
           );
         if (added) state.mcp = wanted;
+      }
+      // User-configured shared servers for this directory. Reconcile against
+      // what this thread already registered so a settings change is applied
+      // and duplicate registrations across threads are refcounted.
+      const desiredShared =
+        mcpSession === undefined || connection.external
+          ? []
+          : (mcpSession.sharedMcpServers ?? []).flatMap(({ id, server }) => {
+              const config = openCodeV2SharedMcpConfig(server);
+              return config === undefined ? [] : [{ name: id, config }];
+            });
+      for (const registration of state.mcpShared) {
+        const stillWanted = desiredShared.some(
+          ({ name }) => name === registration.name && directory === registration.directory,
+        );
+        if (!stillWanted) yield* releaseSharedMcp(registration.name, registration.directory);
+      }
+      state.mcpShared = state.mcpShared.filter((registration) =>
+        desiredShared.some(
+          ({ name }) => name === registration.name && directory === registration.directory,
+        ),
+      );
+      for (const { name: sharedName, config } of desiredShared) {
+        if (
+          state.mcpShared.some(
+            (registration) =>
+              registration.name === sharedName && registration.directory === directory,
+          )
+        ) {
+          continue;
+        }
+        const key = sharedMcpKey(directory, sharedName);
+        const existingRegistration = sharedMcpRefs.get(key);
+        if (existingRegistration !== undefined) {
+          sharedMcpRefs.set(key, { ...existingRegistration, refs: existingRegistration.refs + 1 });
+        } else if (yield* addSharedMcp(sharedName, directory, config)) {
+          sharedMcpRefs.set(key, { name: sharedName, directory, refs: 1 });
+        } else {
+          continue;
+        }
+        state.mcpShared.push({ name: sharedName, directory });
       }
       const instructions = [
         buildRuntimeInstructions({ harness: "OpenCode", model: turnInput.modelSelection.model }),
@@ -4221,6 +4341,10 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
             threads.delete(child);
           }
           if (state.mcp !== undefined) yield* removeMcp(state.mcp);
+          for (const registration of state.mcpShared) {
+            yield* releaseSharedMcp(registration.name, registration.directory);
+          }
+          state.mcpShared = [];
         }),
       respondToRuntimeRequest: (requestInput) =>
         Effect.gen(function* () {

@@ -1,4 +1,5 @@
 import type { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import type { ResolvedSharedMcpServer } from "./sharedAgentResources.ts";
 
 export interface McpProviderSessionConfig {
   readonly environmentId: EnvironmentId;
@@ -22,6 +23,13 @@ export interface McpProviderSessionConfig {
    * already pointed at the server's daemon; the agent never handles a token.
    */
   readonly agentDeviceEnvironment?: Readonly<Record<string, string>>;
+  /**
+   * User-configured MCP servers this instance should also carry, resolved from
+   * `ServerSettings.sharedAgentResources` and the instance's `shared` steering
+   * when the session is prepared. Values are already materialized from the
+   * secret store, so adapters only translate them into provider config.
+   */
+  readonly sharedMcpServers?: ReadonlyArray<ResolvedSharedMcpServer>;
 }
 
 /** Provider env with the device variables applied over `base`, or `base` untouched. */

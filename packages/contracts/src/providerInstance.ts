@@ -36,6 +36,7 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { SharedMcpServerMap, SharedResourceId } from "./agentResources.ts";
 
 const PROVIDER_SLUG_MAX_CHARS = 64;
 /**
@@ -113,6 +114,21 @@ export const ProviderInstanceEnvironment = Schema.Array(ProviderInstanceEnvironm
 export type ProviderInstanceEnvironment = typeof ProviderInstanceEnvironment.Type;
 
 /**
+ * Per-instance steering for shared agent resources. `enabled=false` disables
+ * every shared resource for this instance; `disabledResourceIds` opts the
+ * instance out of specific environment entries; `mcpServers` are
+ * instance-local additions. Effective set for the instance =
+ * environment entries (filtered by targeting + the above) ∪ instance-local
+ * entries, instance-local winning on id collision.
+ */
+export const ProviderInstanceSharedConfig = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  disabledResourceIds: Schema.optionalKey(Schema.Array(SharedResourceId)),
+  mcpServers: Schema.optionalKey(SharedMcpServerMap),
+});
+export type ProviderInstanceSharedConfig = typeof ProviderInstanceSharedConfig.Type;
+
+/**
  * Envelope shape for a provider instance configuration in `ServerSettings`.
  *
  * `driver` is intentionally accepted as any well-formed slug (see module
@@ -128,6 +144,7 @@ export const ProviderInstanceConfig = Schema.Struct({
   environment: Schema.optionalKey(ProviderInstanceEnvironment),
   enabled: Schema.optionalKey(Schema.Boolean),
   config: Schema.optionalKey(Schema.Unknown),
+  shared: Schema.optionalKey(ProviderInstanceSharedConfig),
 });
 export type ProviderInstanceConfig = typeof ProviderInstanceConfig.Type;
 
