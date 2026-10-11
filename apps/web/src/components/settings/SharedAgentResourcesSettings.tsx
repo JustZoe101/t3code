@@ -38,16 +38,16 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Switch } from "../ui/switch";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 import {
-  DRIVER_KINDS,
-  TRANSPORT_LABELS,
-  driverLabel,
-  draftFromServer,
-  emptyDraft,
-  serverFromDraft,
-  serverTargetSummary,
+  SHARED_MCP_DRIVER_KINDS,
+  SHARED_MCP_TRANSPORT_LABELS,
+  sharedMcpDriverLabel,
+  draftFromSharedMcpServer,
+  emptySharedMcpServerDraft,
+  sharedMcpServerFromDraft,
+  sharedMcpServerTargetSummary,
   sharedServerSupportBadges,
-  type ServerDraft,
-} from "./SharedAgentResourcesSettings.logic";
+  type SharedMcpServerDraft,
+} from "@t3tools/client-runtime/state/shared-agent-resources";
 
 interface VariableDraftRow extends SharedResourceVariable {
   readonly rowId: string;
@@ -189,7 +189,7 @@ function DriverChips(props: {
       description={props.description}
       control={
         <div className="flex flex-wrap justify-end gap-1">
-          {DRIVER_KINDS.map((driver) => {
+          {SHARED_MCP_DRIVER_KINDS.map((driver) => {
             const isSelected = props.selected.includes(driver);
             return (
               <Button
@@ -201,7 +201,7 @@ function DriverChips(props: {
                 disabled={props.disabled}
                 onClick={() => props.onToggle(driver, !isSelected)}
               >
-                {driverLabel(driver)}
+                {sharedMcpDriverLabel(driver)}
               </Button>
             );
           })}
@@ -212,15 +212,15 @@ function DriverChips(props: {
 }
 
 function McpServerEditor(props: {
-  readonly draft: ServerDraft;
-  readonly onChange: (draft: ServerDraft) => void;
+  readonly draft: SharedMcpServerDraft;
+  readonly onChange: (draft: SharedMcpServerDraft) => void;
   readonly onSave: () => void;
   readonly onCancel: () => void;
   readonly readOnly: boolean;
 }) {
   const { draft } = props;
   const isRemote = draft.transport !== "stdio";
-  const canSave = serverFromDraft(draft) !== undefined;
+  const canSave = sharedMcpServerFromDraft(draft) !== undefined;
 
   return (
     <div className="space-y-1 bg-muted/20">
@@ -252,14 +252,16 @@ function McpServerEditor(props: {
             }}
           >
             <SelectTrigger size="sm" className="w-full sm:w-56" aria-label="Transport">
-              <SelectValue>{TRANSPORT_LABELS[draft.transport]}</SelectValue>
+              <SelectValue>{SHARED_MCP_TRANSPORT_LABELS[draft.transport]}</SelectValue>
             </SelectTrigger>
             <SelectPopup align="end" alignItemWithTrigger={false}>
-              {(Object.keys(TRANSPORT_LABELS) as SharedMcpTransport[]).map((transport) => (
-                <SelectItem key={transport} value={transport}>
-                  {TRANSPORT_LABELS[transport]}
-                </SelectItem>
-              ))}
+              {(Object.keys(SHARED_MCP_TRANSPORT_LABELS) as SharedMcpTransport[]).map(
+                (transport) => (
+                  <SelectItem key={transport} value={transport}>
+                    {SHARED_MCP_TRANSPORT_LABELS[transport]}
+                  </SelectItem>
+                ),
+              )}
             </SelectPopup>
           </Select>
         }
@@ -390,8 +392,8 @@ function InstanceSharedRow(props: {
   const enabled = props.instance.shared?.enabled !== false;
   return (
     <SettingsRow
-      title={props.instance.displayName ?? driverLabel(props.instance.driver)}
-      description={driverLabel(props.instance.driver)}
+      title={props.instance.displayName ?? sharedMcpDriverLabel(props.instance.driver)}
+      description={sharedMcpDriverLabel(props.instance.driver)}
       control={
         <Switch
           checked={enabled}
@@ -460,11 +462,11 @@ export function SharedAgentResourcesSettings({
     }
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [instances]);
-  const [draft, setDraft] = useState<ServerDraft | null>(null);
+  const [draft, setDraft] = useState<SharedMcpServerDraft | null>(null);
 
   const saveDraft = () => {
     if (draft === null) return;
-    const server = serverFromDraft(draft);
+    const server = sharedMcpServerFromDraft(draft);
     if (server === undefined) return;
     const next: Record<string, SharedMcpServer> = { ...servers };
     if (draft.originalId !== null && draft.originalId !== draft.id.trim()) {
@@ -506,7 +508,7 @@ export function SharedAgentResourcesSettings({
             size="icon-xs"
             variant="ghost-muted"
             aria-label="Add shared MCP server"
-            onClick={() => setDraft(emptyDraft())}
+            onClick={() => setDraft(emptySharedMcpServerDraft())}
           >
             <PlusIcon />
           </Button>
@@ -540,7 +542,7 @@ export function SharedAgentResourcesSettings({
         <SettingsRow
           key={id}
           title={id}
-          description={`${server.transport} · ${serverTargetSummary(server)}`}
+          description={`${server.transport} · ${sharedMcpServerTargetSummary(server)}`}
           control={
             <div className="flex flex-wrap items-center justify-end gap-1">
               {sharedServerSupportBadges(server).map(({ driver, support }) => (
@@ -555,7 +557,7 @@ export function SharedAgentResourcesSettings({
                         : "outline"
                   }
                 >
-                  {driverLabel(driver)}
+                  {sharedMcpDriverLabel(driver)}
                 </Badge>
               ))}
             </div>
@@ -567,7 +569,7 @@ export function SharedAgentResourcesSettings({
                   type="button"
                   size="xs"
                   variant="outline"
-                  onClick={() => setDraft(draftFromServer(id, server))}
+                  onClick={() => setDraft(draftFromSharedMcpServer(id, server))}
                 >
                   Edit
                 </Button>

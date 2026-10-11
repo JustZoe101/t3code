@@ -188,6 +188,12 @@ function SettingsIndexSections() {
           disabled={noServerTargets}
         />
         <SettingsRow
+          icon="server.rack"
+          label="Shared MCP servers"
+          target="SettingsSharedMcp"
+          disabled={noServerTargets}
+        />
+        <SettingsRow
           icon="text.bubble"
           label="New threads"
           target="SettingsEnvironmentNewThreads"

@@ -2,30 +2,39 @@ import { describe, expect, it } from "vite-plus/test";
 import type { ProviderDriverKind } from "@t3tools/contracts";
 
 import {
-  emptyDraft,
-  serverFromDraft,
+  emptySharedMcpServerDraft,
+  sharedMcpServerFromDraft,
   sharedServerSupportBadges,
-} from "./SharedAgentResourcesSettings.logic.ts";
+} from "./sharedAgentResources.ts";
 
-const supportFor = (server: NonNullable<ReturnType<typeof serverFromDraft>>) =>
+const supportFor = (server: NonNullable<ReturnType<typeof sharedMcpServerFromDraft>>) =>
   Object.fromEntries(
     sharedServerSupportBadges(server).map(({ driver, support }) => [driver, support]),
   );
 
 describe("shared MCP server draft", () => {
   it("requires a name, and a command or url for the chosen transport", () => {
-    expect(serverFromDraft({ ...emptyDraft(), id: "" })).toBeUndefined();
-    expect(serverFromDraft({ ...emptyDraft(), id: "x" })).toBeUndefined();
-    expect(serverFromDraft({ ...emptyDraft(), id: "x", command: "npx" })).toBeDefined();
-    expect(serverFromDraft({ ...emptyDraft(), id: "x", transport: "http" })).toBeUndefined();
+    expect(sharedMcpServerFromDraft({ ...emptySharedMcpServerDraft(), id: "" })).toBeUndefined();
+    expect(sharedMcpServerFromDraft({ ...emptySharedMcpServerDraft(), id: "x" })).toBeUndefined();
     expect(
-      serverFromDraft({ ...emptyDraft(), id: "x", transport: "http", url: "https://x/mcp" }),
+      sharedMcpServerFromDraft({ ...emptySharedMcpServerDraft(), id: "x", command: "npx" }),
+    ).toBeDefined();
+    expect(
+      sharedMcpServerFromDraft({ ...emptySharedMcpServerDraft(), id: "x", transport: "http" }),
+    ).toBeUndefined();
+    expect(
+      sharedMcpServerFromDraft({
+        ...emptySharedMcpServerDraft(),
+        id: "x",
+        transport: "http",
+        url: "https://x/mcp",
+      }),
     ).toBeDefined();
   });
 
   it("splits stdio arguments and carries targeting through", () => {
-    const server = serverFromDraft({
-      ...emptyDraft(),
+    const server = sharedMcpServerFromDraft({
+      ...emptySharedMcpServerDraft(),
       id: "demo",
       command: "npx",
       args: "-y  some-server",
@@ -38,14 +47,18 @@ describe("shared MCP server draft", () => {
   });
 
   it("reports the per-driver transport support the resolve step uses", () => {
-    const stdio = serverFromDraft({ ...emptyDraft(), id: "x", command: "npx" })!;
+    const stdio = sharedMcpServerFromDraft({
+      ...emptySharedMcpServerDraft(),
+      id: "x",
+      command: "npx",
+    })!;
     const stdioSupport = supportFor(stdio);
     expect(stdioSupport.claudeAgent).toBe("supported");
     expect(stdioSupport.muse).toBe("unsupported");
     expect(stdioSupport.pi).toBe("unsupported");
 
-    const remote = serverFromDraft({
-      ...emptyDraft(),
+    const remote = sharedMcpServerFromDraft({
+      ...emptySharedMcpServerDraft(),
       id: "x",
       transport: "http",
       url: "https://x/mcp",

@@ -1,7 +1,8 @@
 /**
- * Pure helpers for the shared MCP server editor. Kept out of the component so
- * the draft → schema conversion and the per-driver support view stay easy to
- * test.
+ * Pure helpers for the shared MCP server editor, shared by the web and mobile
+ * settings surfaces. Kept in `client-runtime` (not a UI package) so the
+ * draft → schema conversion and the per-driver support view stay testable and
+ * identical wherever the editor is rendered.
  */
 import {
   PROVIDER_DISPLAY_NAMES,
@@ -15,19 +16,21 @@ import {
   mcpTransportSupport,
 } from "@t3tools/shared/providerResources";
 
-export const DRIVER_KINDS = Object.keys(PROVIDER_MCP_TRANSPORT_SUPPORT) as ProviderDriverKind[];
+export const SHARED_MCP_DRIVER_KINDS = Object.keys(
+  PROVIDER_MCP_TRANSPORT_SUPPORT,
+) as ProviderDriverKind[];
 
-export const TRANSPORT_LABELS: Record<SharedMcpTransport, string> = {
+export const SHARED_MCP_TRANSPORT_LABELS: Record<SharedMcpTransport, string> = {
   stdio: "stdio — local command",
   http: "http — remote URL",
   sse: "sse — remote URL",
 };
 
-export function driverLabel(driver: ProviderDriverKind): string {
+export function sharedMcpDriverLabel(driver: ProviderDriverKind): string {
   return PROVIDER_DISPLAY_NAMES[driver] ?? driver;
 }
 
-export function serverTargetSummary(server: SharedMcpServer): string {
+export function sharedMcpServerTargetSummary(server: SharedMcpServer): string {
   if (server.transport === "stdio") {
     return [server.command ?? "", ...(server.args ?? [])].filter(Boolean).join(" ");
   }
@@ -42,13 +45,13 @@ export interface SharedServerSupport {
 export function sharedServerSupportBadges(
   server: SharedMcpServer,
 ): ReadonlyArray<SharedServerSupport> {
-  return DRIVER_KINDS.map((driver) => ({
+  return SHARED_MCP_DRIVER_KINDS.map((driver) => ({
     driver,
     support: mcpTransportSupport(driver, server.transport),
   }));
 }
 
-export interface ServerDraft {
+export interface SharedMcpServerDraft {
   readonly originalId: string | null;
   readonly id: string;
   readonly transport: SharedMcpTransport;
@@ -61,7 +64,10 @@ export interface ServerDraft {
   readonly excludeDrivers: ReadonlyArray<ProviderDriverKind>;
 }
 
-export function draftFromServer(id: string, server: SharedMcpServer): ServerDraft {
+export function draftFromSharedMcpServer(
+  id: string,
+  server: SharedMcpServer,
+): SharedMcpServerDraft {
   return {
     originalId: id,
     id,
@@ -78,7 +84,7 @@ export function draftFromServer(id: string, server: SharedMcpServer): ServerDraf
   };
 }
 
-export function emptyDraft(): ServerDraft {
+export function emptySharedMcpServerDraft(): SharedMcpServerDraft {
   return {
     originalId: null,
     id: "",
@@ -93,8 +99,8 @@ export function emptyDraft(): ServerDraft {
   };
 }
 
-/** `undefined` when the draft is incomplete; the form refuses to save then. */
-export function serverFromDraft(draft: ServerDraft): SharedMcpServer | undefined {
+/** `undefined` when the draft is incomplete; a form refuses to save then. */
+export function sharedMcpServerFromDraft(draft: SharedMcpServerDraft): SharedMcpServer | undefined {
   const id = draft.id.trim();
   if (id.length === 0) return undefined;
   const targeting = {
