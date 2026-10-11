@@ -17,11 +17,13 @@ import type {
   SharedAgentResources,
   SharedHook,
   SharedMcpServer,
+  SharedPlugin,
   SharedResourceTargeting,
   SharedSkill,
 } from "@t3tools/contracts";
 import {
   mcpTransportSupport,
+  pluginSupportForDriver,
   skillSupportForDriver,
   type McpTransport,
 } from "@t3tools/shared/providerResources";
@@ -220,4 +222,57 @@ export function resolveSharedHooks(input: {
       .map(([id, hook]) => ({ id, hook })),
     rejected: [],
   };
+}
+
+export interface ResolvedSharedPlugin {
+  /** The map key in `SharedAgentResources.plugins`. */
+  readonly id: string;
+  readonly plugin: SharedPlugin;
+}
+
+export interface SharedPluginResolution {
+  readonly plugins: ReadonlyArray<ResolvedSharedPlugin>;
+  readonly rejected: ReadonlyArray<{ readonly id: string; readonly reason: string }>;
+}
+
+/**
+ * Effective shared plugins for one provider instance. Delivery is gated on a
+ * managed plugin root, so a driver without one is reported rather than
+ * silently skipped.
+ */
+export function resolveSharedPlugins(input: {
+  readonly resources: SharedAgentResources;
+  readonly instance: {
+    readonly driver: string;
+    readonly shared?: ProviderInstanceSharedConfig | undefined;
+  };
+}): SharedPluginResolution {
+  const { instance } = input;
+  if (instance.shared?.enabled === false) return { plugins: [], rejected: [] };
+  const disabled = new Set<string>(instance.shared?.disabledResourceIds ?? []);
+
+  const merged = new Map<string, SharedPlugin>();
+  for (const [id, plugin] of Object.entries(input.resources.plugins)) {
+    if (disabled.has(id)) continue;
+    if (!matchesTargeting(plugin.targeting, instance.driver)) continue;
+    merged.set(id, plugin);
+  }
+  for (const [id, plugin] of Object.entries(instance.shared?.plugins ?? {})) {
+    if (!matchesTargeting(plugin.targeting, instance.driver)) continue;
+    merged.set(id, plugin);
+  }
+
+  const plugins: ResolvedSharedPlugin[] = [];
+  const rejected: Array<{ id: string; reason: string }> = [];
+  for (const [id, plugin] of [...merged.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    if (pluginSupportForDriver(instance.driver) === "supported") {
+      plugins.push({ id, plugin });
+      continue;
+    }
+    rejected.push({
+      id,
+      reason: `${instance.driver} installs plugins through its own marketplace, not a managed root.`,
+    });
+  }
+  return { plugins, rejected };
 }

@@ -11,12 +11,14 @@ import {
   type SharedHookEvent,
   type SharedMcpServer,
   type SharedMcpTransport,
+  type SharedPlugin,
   type SharedResourceVariable,
   type SharedSkill,
 } from "@t3tools/contracts";
 import {
   PROVIDER_MCP_TRANSPORT_SUPPORT,
   mcpTransportSupport,
+  pluginSupportForDriver,
   skillSupportForDriver,
   type SkillSupport,
 } from "@t3tools/shared/providerResources";
@@ -259,4 +261,48 @@ export function sharedHookFromDraft(draft: SharedHookDraft): SharedHook | undefi
     ...(draft.env.length > 0 ? { env: [...draft.env] } : {}),
     targeting,
   } as unknown as SharedHook;
+}
+
+/** Per-driver plugin support. Plugins have one axis, like skills. */
+export function sharedPluginDriverSupport(): ReadonlyArray<SharedSkillSupport> {
+  return SHARED_MCP_DRIVER_KINDS.map((driver) => ({
+    driver,
+    support: pluginSupportForDriver(driver),
+  }));
+}
+
+export interface SharedPluginDraft {
+  readonly originalId: string | null;
+  readonly id: string;
+  readonly source: string;
+  readonly drivers: ReadonlyArray<ProviderDriverKind>;
+  readonly excludeDrivers: ReadonlyArray<ProviderDriverKind>;
+}
+
+export function draftFromSharedPlugin(id: string, plugin: SharedPlugin): SharedPluginDraft {
+  return {
+    originalId: id,
+    id,
+    source: plugin.source,
+    drivers: [...(plugin.targeting?.drivers ?? [])] as unknown as ReadonlyArray<ProviderDriverKind>,
+    excludeDrivers: [
+      ...(plugin.targeting?.excludeDrivers ?? []),
+    ] as unknown as ReadonlyArray<ProviderDriverKind>,
+  };
+}
+
+export function emptySharedPluginDraft(): SharedPluginDraft {
+  return { originalId: null, id: "", source: "", drivers: [], excludeDrivers: [] };
+}
+
+/** `undefined` when the draft is incomplete; a form refuses to save then. */
+export function sharedPluginFromDraft(draft: SharedPluginDraft): SharedPlugin | undefined {
+  const id = draft.id.trim();
+  const source = draft.source.trim();
+  if (id.length === 0 || source.length === 0) return undefined;
+  const targeting = {
+    ...(draft.drivers.length > 0 ? { drivers: draft.drivers } : {}),
+    ...(draft.excludeDrivers.length > 0 ? { excludeDrivers: draft.excludeDrivers } : {}),
+  };
+  return { source, targeting } as unknown as SharedPlugin;
 }

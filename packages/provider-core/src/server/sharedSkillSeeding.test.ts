@@ -4,11 +4,9 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 
-import type { ResolvedSharedSkill } from "./sharedAgentResources.ts";
-import { SHARED_SKILL_MANIFEST_FILENAME, seedSharedSkills } from "./sharedSkillSeeding.ts";
+import { SHARED_SKILL_MANIFEST_FILENAME, seedSharedLinks } from "./sharedSkillSeeding.ts";
 
-const resolved = (id: string, source: string): ResolvedSharedSkill =>
-  ({ id, skill: { source } }) as unknown as ResolvedSharedSkill;
+const entry = (id: string, source: string) => ({ id, source });
 
 it.effect("links skills, drops stale links, and never overwrites a real directory", () => {
   const base = "/tmp/opencode/t3-skills-test";
@@ -22,11 +20,11 @@ it.effect("links skills, drops stale links, and never overwrites a real director
     yield* fs.makeDirectory(sourceA, { recursive: true });
     yield* fs.makeDirectory(sourceB, { recursive: true });
 
-    const first = yield* seedSharedSkills({
+    const first = yield* seedSharedLinks({
       fileSystem: fs,
       path,
       root,
-      skills: [resolved("a", sourceA), resolved("b", sourceB)],
+      entries: [entry("a", sourceA), entry("b", sourceB)],
     });
     assert.deepEqual(first.seeded, ["a", "b"]);
     assert.equal(yield* fs.readLink(path.join(root, "a")), sourceA);
@@ -34,11 +32,11 @@ it.effect("links skills, drops stale links, and never overwrites a real director
     // A real directory the user owns is reported, not replaced.
     const userDir = path.join(root, "c");
     yield* fs.makeDirectory(userDir, { recursive: true });
-    const second = yield* seedSharedSkills({
+    const second = yield* seedSharedLinks({
       fileSystem: fs,
       path,
       root,
-      skills: [resolved("a", sourceA), resolved("c", sourceB)],
+      entries: [entry("a", sourceA), entry("c", sourceB)],
     });
     assert.deepEqual(second.seeded, ["a"]);
     assert.equal(second.skipped.length, 1);

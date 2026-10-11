@@ -206,6 +206,12 @@ function SettingsIndexSections() {
           disabled={noServerTargets}
         />
         <SettingsRow
+          icon="square.3.layers.3d"
+          label="Shared plugins"
+          target="SettingsSharedPlugins"
+          disabled={noServerTargets}
+        />
+        <SettingsRow
           icon="text.bubble"
           label="New threads"
           target="SettingsEnvironmentNewThreads"

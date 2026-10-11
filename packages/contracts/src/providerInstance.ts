@@ -39,6 +39,7 @@ import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 import {
   SharedHookMap,
   SharedMcpServerMap,
+  SharedPluginMap,
   SharedResourceId,
   SharedSkillMap,
 } from "./agentResources.ts";
@@ -132,6 +133,7 @@ export const ProviderInstanceSharedConfig = Schema.Struct({
   mcpServers: Schema.optionalKey(SharedMcpServerMap),
   skills: Schema.optionalKey(SharedSkillMap),
   hooks: Schema.optionalKey(SharedHookMap),
+  plugins: Schema.optionalKey(SharedPluginMap),
 });
 export type ProviderInstanceSharedConfig = typeof ProviderInstanceSharedConfig.Type;
 

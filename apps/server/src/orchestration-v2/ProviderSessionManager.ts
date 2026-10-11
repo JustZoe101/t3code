@@ -50,13 +50,14 @@ import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderS
 import {
   resolveSharedHooks,
   resolveSharedMcpServers,
+  resolveSharedPlugins,
   resolveSharedSkills,
   type ResolvedSharedMcpServer,
   type ResolvedSharedSkill,
 } from "@t3tools/provider-core/server/sharedAgentResources";
 import {
-  managedSkillsHomePath,
-  seedSharedSkills,
+  managedInstanceHomePath,
+  seedSharedLinks,
 } from "@t3tools/provider-core/server/sharedSkillSeeding";
 import * as ServerSettings from "../serverSettings.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
@@ -456,31 +457,43 @@ export const layerWithOptions = (
             );
 
       /**
-       * Link the instance's shared skills into its managed home before the
-       * provider reads them. Idempotent; a no-op without a managed homePath, so
-       * the user's real `~/.claude` / `~/.codex` is never written.
+       * Link the instance's shared skills and plugins into its managed home
+       * before the provider reads them. Idempotent; a no-op without a managed
+       * homePath, so the user's real `~/.claude` / `~/.codex` is never written.
        */
-      const seedSharedSkillsFor = (providerInstanceId: ProviderInstanceId) =>
+      const seedSharedResourcesFor = (providerInstanceId: ProviderInstanceId) =>
         Effect.gen(function* () {
           if (Option.isNone(serverSettings)) return;
           const settings = yield* serverSettings.value.getSettings;
           const instance = settings.providerInstances[providerInstanceId];
           const driver = instance?.driver ?? "";
-          const homePath = managedSkillsHomePath({
+          const homePath = managedInstanceHomePath({
             driver,
             config: instance?.config,
             home: homeDirectory,
           });
           if (homePath === undefined) return;
+          const target = { driver, shared: instance?.shared };
           const skills = resolveSharedSkills({
             resources: settings.sharedAgentResources,
-            instance: { driver, shared: instance?.shared },
+            instance: target,
           }).skills;
-          yield* seedSharedSkills({
+          yield* seedSharedLinks({
             fileSystem,
             path,
             root: path.join(homePath, "skills"),
-            skills,
+            entries: skills.map(({ id, skill }) => ({ id, source: skill.source })),
+          });
+          const plugins = resolveSharedPlugins({
+            resources: settings.sharedAgentResources,
+            instance: target,
+          }).plugins;
+          if (plugins.length === 0) return;
+          yield* seedSharedLinks({
+            fileSystem,
+            path,
+            root: path.join(homePath, "plugins"),
+            entries: plugins.map(({ id, plugin }) => ({ id, source: plugin.source })),
           });
         }).pipe(Effect.ignore({ log: true }));
 
@@ -610,7 +623,7 @@ export const layerWithOptions = (
                 // Refresh on every prepare so a settings edit is picked up when
                 // the thread re-attaches, without rotating the credential.
                 const shared = yield* resolveSharedResources(providerInstanceId);
-                yield* seedSharedSkillsFor(providerInstanceId);
+                yield* seedSharedResourcesFor(providerInstanceId);
                 yield* runSharedHooksFor(providerInstanceId, "session-start");
                 const existing = yield* mcpSessions.read(threadId);
                 if (existing !== undefined) {

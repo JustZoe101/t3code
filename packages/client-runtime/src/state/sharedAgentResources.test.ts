@@ -4,9 +4,11 @@ import type { ProviderDriverKind } from "@t3tools/contracts";
 import {
   emptySharedHookDraft,
   emptySharedMcpServerDraft,
+  emptySharedPluginDraft,
   emptySharedSkillDraft,
   sharedHookFromDraft,
   sharedMcpServerFromDraft,
+  sharedPluginFromDraft,
   sharedServerSupportBadges,
   sharedSkillDriverSupport,
   sharedSkillFromDraft,
@@ -119,5 +121,14 @@ describe("shared hook draft", () => {
     });
     expect(hook?.timeoutMs).toBe(1500);
     expect(hook?.args).toEqual(["a", "b"]);
+  });
+});
+
+describe("shared plugin draft", () => {
+  it("requires a name and a source directory", () => {
+    expect(sharedPluginFromDraft({ ...emptySharedPluginDraft(), id: "x" })).toBeUndefined();
+    expect(
+      sharedPluginFromDraft({ ...emptySharedPluginDraft(), id: "x", source: "/plugins/x" }),
+    ).toBeDefined();
   });
 });

@@ -2,8 +2,12 @@ import { Schema } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 import { SharedAgentResources, type SharedSkillMap } from "@t3tools/contracts";
 
-import { resolveSharedSkills, resolveSharedHooks } from "./sharedAgentResources.ts";
-import { managedSkillsHomePath } from "./sharedSkillSeeding.ts";
+import {
+  resolveSharedSkills,
+  resolveSharedHooks,
+  resolveSharedPlugins,
+} from "./sharedAgentResources.ts";
+import { managedInstanceHomePath } from "./sharedSkillSeeding.ts";
 
 const decodeResources = Schema.decodeUnknownSync(SharedAgentResources);
 const skill = (source: string) => ({ source });
@@ -66,20 +70,39 @@ describe("resolveSharedHooks", () => {
   });
 });
 
+describe("resolveSharedPlugins", () => {
+  it("delivers to Codex only and reports the rest", () => {
+    const resources = decodeResources({
+      plugins: { "team-plugin": { source: "/plugins/team" } },
+    });
+    const codex = resolveSharedPlugins({ resources, instance: { driver: "codex" } });
+    expect(codex.plugins.map(({ id }) => id)).toEqual(["team-plugin"]);
+    expect(codex.rejected).toEqual([]);
+
+    const claude = resolveSharedPlugins({ resources, instance: { driver: "claudeAgent" } });
+    expect(claude.plugins).toEqual([]);
+    expect(claude.rejected.map(({ id }) => id)).toEqual(["team-plugin"]);
+  });
+});
+
 describe("managedSkillsHomePath", () => {
   it("returns an expanded managed home only for supported drivers with a homePath", () => {
     expect(
-      managedSkillsHomePath({
+      managedInstanceHomePath({
         driver: "claudeAgent",
         config: { homePath: "~/.claude-t3" },
         home: "/home/me",
       }),
     ).toBe("/home/me/.claude-t3");
-    expect(managedSkillsHomePath({ driver: "claudeAgent", config: {}, home: "/home/me" })).toBe(
+    expect(managedInstanceHomePath({ driver: "claudeAgent", config: {}, home: "/home/me" })).toBe(
       undefined,
     );
     expect(
-      managedSkillsHomePath({ driver: "grok", config: { homePath: "~/.grok" }, home: "/home/me" }),
+      managedInstanceHomePath({
+        driver: "grok",
+        config: { homePath: "~/.grok" },
+        home: "/home/me",
+      }),
     ).toBeUndefined();
   });
 });

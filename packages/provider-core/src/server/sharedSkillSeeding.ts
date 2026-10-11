@@ -25,7 +25,7 @@ export const SHARED_SKILL_MANIFEST_FILENAME = ".t3-shared-skills.json";
  * read `<homePath>/skills`; without an explicit `homePath` the root would be
  * the user's real `~/.claude` or `~/.codex`, which T3 never writes.
  */
-export function managedSkillsHomePath(input: {
+export function managedInstanceHomePath(input: {
   readonly driver: string;
   readonly config: unknown;
   readonly home: string;
@@ -70,11 +70,11 @@ const isSymlink = (fileSystem: FileSystem.FileSystem, path: string): Effect.Effe
     Effect.orElseSucceed(() => false),
   );
 
-export const seedSharedSkills = Effect.fn("seedSharedSkills")(function* (input: {
+export const seedSharedLinks = Effect.fn("seedSharedLinks")(function* (input: {
   readonly fileSystem: FileSystem.FileSystem;
   readonly path: Path.Path;
   readonly root: string;
-  readonly skills: ReadonlyArray<ResolvedSharedSkill>;
+  readonly entries: ReadonlyArray<{ readonly id: string; readonly source: string }>;
 }) {
   const fileSystem = input.fileSystem;
   const path = input.path;
@@ -85,7 +85,7 @@ export const seedSharedSkills = Effect.fn("seedSharedSkills")(function* (input: 
     .pipe(Effect.orElseSucceed(() => undefined));
 
   const previous = yield* readManifest(fileSystem, manifestPath);
-  const desiredIds = input.skills.map(({ id }) => id);
+  const desiredIds = input.entries.map(({ id }) => id);
 
   // Steady state (the common per-turn call): the manifest already names exactly
   // these ids and every link is still ours. Nothing to touch.
@@ -103,7 +103,7 @@ export const seedSharedSkills = Effect.fn("seedSharedSkills")(function* (input: 
   const seeded: string[] = [];
   const skipped: Array<{ id: string; reason: string }> = [];
 
-  for (const { id, skill } of input.skills) {
+  for (const { id, source } of input.entries) {
     const linkPath = path.join(input.root, id);
     const alreadyLinked = yield* isSymlink(fileSystem, linkPath);
     if (!alreadyLinked) {
@@ -119,7 +119,7 @@ export const seedSharedSkills = Effect.fn("seedSharedSkills")(function* (input: 
     } else {
       yield* fileSystem.remove(linkPath).pipe(Effect.orElseSucceed(() => undefined));
     }
-    const linked = yield* fileSystem.symlink(skill.source, linkPath).pipe(
+    const linked = yield* fileSystem.symlink(source, linkPath).pipe(
       Effect.as(true),
       Effect.orElseSucceed(() => false),
     );

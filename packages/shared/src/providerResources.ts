@@ -88,3 +88,25 @@ export const PROVIDER_SKILL_SUPPORT: Readonly<Record<string, SkillSupport>> = {
 export function skillSupportForDriver(driver: string): SkillSupport {
   return PROVIDER_SKILL_SUPPORT[driver] ?? "unsupported";
 }
+
+/**
+ * Per-driver support for shared plugins. Only Codex exposes a managed plugin
+ * root (`<homePath>/plugins`, linked through its shadow home); the rest install
+ * plugins through provider-native marketplaces/CLIs, which T3 does not drive
+ * yet and which would write into user-owned directories.
+ */
+export const PROVIDER_PLUGIN_SUPPORT: Readonly<Record<string, SkillSupport>> = {
+  codex: "supported",
+  claudeAgent: "unsupported",
+  antigravity: "unsupported",
+  cursor: "unsupported",
+  grok: "unsupported",
+  opencode: "unsupported",
+  muse: "unsupported",
+  pi: "unsupported",
+  acpRegistry: "unsupported",
+};
+
+export function pluginSupportForDriver(driver: string): SkillSupport {
+  return PROVIDER_PLUGIN_SUPPORT[driver] ?? "unsupported";
+}

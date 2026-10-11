@@ -125,13 +125,28 @@ export const SharedHookMap = Schema.Record(SharedResourceId, SharedHook);
 export type SharedHookMap = typeof SharedHookMap.Type;
 
 /**
- * Environment-level shared agent resources. Grows a key per later phase
- * (`plugins`).
+ * A shared plugin: a directory in the Agent-Plugins form (a `plugin.json` plus
+ * optional `skills/`, `hooks.json`, `mcp_config.json`, …). `source` is the
+ * user's own directory; T3 links it into a provider's managed plugin root and
+ * removes that link on teardown.
+ */
+export const SharedPlugin = Schema.Struct({
+  source: TrimmedNonEmptyString,
+  targeting: SharedResourceTargeting.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+});
+export type SharedPlugin = typeof SharedPlugin.Type;
+
+export const SharedPluginMap = Schema.Record(SharedResourceId, SharedPlugin);
+export type SharedPluginMap = typeof SharedPluginMap.Type;
+
+/**
+ * Environment-level shared agent resources. The last of the planned phases.
  */
 export const SharedAgentResources = Schema.Struct({
   mcpServers: SharedMcpServerMap.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   skills: SharedSkillMap.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   hooks: SharedHookMap.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  plugins: SharedPluginMap.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 export type SharedAgentResources = typeof SharedAgentResources.Type;
 

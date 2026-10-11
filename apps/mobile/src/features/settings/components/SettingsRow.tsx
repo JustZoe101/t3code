@@ -50,7 +50,9 @@ export function SettingsRow(props: {
           if (props.target)
             navigation.navigate("SettingsSheet", {
               screen: "SettingsContent",
-              params: { screen: props.target },
+              // Every `SettingsSheetTarget` is a registered screen; the nested
+              // navigator's param type just does not distribute this union.
+              params: { screen: props.target } as never,
             });
           else if (props.fullScreenTarget) navigation.navigate(props.fullScreenTarget);
           else props.onPress?.();
@@ -103,7 +105,7 @@ export function SettingsRow(props: {
         onPress={() =>
           navigation.navigate("SettingsSheet", {
             screen: "SettingsContent",
-            params: { screen: target },
+            params: { screen: target } as never,
           })
         }
       >

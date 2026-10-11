@@ -83,6 +83,7 @@ import { SettingsProviderAccountsRouteScreen } from "./features/settings/Setting
 import { SettingsSharedMcpRouteScreen } from "./features/settings/SettingsSharedMcpRouteScreen";
 import { SettingsSharedSkillsRouteScreen } from "./features/settings/SettingsSharedSkillsRouteScreen";
 import { SettingsSharedHooksRouteScreen } from "./features/settings/SettingsSharedHooksRouteScreen";
+import { SettingsSharedPluginsRouteScreen } from "./features/settings/SettingsSharedPluginsRouteScreen";
 import { SettingsAuthRouteScreen } from "./features/settings/SettingsAuthRouteScreen";
 import { SettingsEnvironmentDetailRouteScreen } from "./features/settings/SettingsEnvironmentDetailRouteScreen";
 import { SettingsEnvironmentsRouteScreen } from "./features/settings/SettingsEnvironmentsRouteScreen";
@@ -261,6 +262,11 @@ const SettingsContentStack = createV5SheetStackNavigator({
       screen: SettingsSharedHooksRouteScreen,
       linking: "shared-hooks",
       options: { title: "Shared hooks" },
+    }),
+    SettingsSharedPlugins: createNativeStackScreen({
+      screen: SettingsSharedPluginsRouteScreen,
+      linking: "shared-plugins",
+      options: { title: "Shared plugins" },
     }),
     SettingsEnvironmentMaintenance: createNativeStackScreen({
       screen: SettingsEnvironmentMaintenanceRouteScreen,

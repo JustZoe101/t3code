@@ -23,6 +23,7 @@ import {
   SharedAgentResources,
   SharedHookMap,
   SharedMcpServerMap,
+  SharedPluginMap,
   SharedSkillMap,
 } from "./agentResources.ts";
 import { EnvironmentMachineKind, ThreadEnvMode, WorktreeSubmodules } from "./environment.ts";
@@ -1554,6 +1555,7 @@ export const ServerSettingsPatch = Schema.Struct({
       mcpServers: Schema.optionalKey(SharedMcpServerMap),
       skills: Schema.optionalKey(SharedSkillMap),
       hooks: Schema.optionalKey(SharedHookMap),
+      plugins: Schema.optionalKey(SharedPluginMap),
     }),
   ),
   // Per-entry, unlike `providerInstances`: a client only ever adds or removes

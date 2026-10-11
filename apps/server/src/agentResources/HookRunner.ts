@@ -12,6 +12,7 @@ import type { ResolvedSharedHook } from "@t3tools/provider-core/server/sharedAge
 import * as Cause from "effect/Cause";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 
 import { ProcessRunner } from "../processRunner.ts";
 
@@ -53,14 +54,34 @@ export const runSharedHooks = Effect.fn("runSharedHooks")(function* (input: {
         maxOutputBytes: MAX_OUTPUT_BYTES,
       })
       .pipe(
-        Effect.map((output): SharedHookRunResult => ({
-          id,
-          event: input.event,
-          status: output.timedOut ? "timed-out" : output.code === 0 ? "completed" : "failed",
-          exitCode: output.code,
-          stdout: output.stdout,
-          stderr: output.stderr,
-        })),
+        // Bound the hook here too: whatever the runner's own timeout does, a
+        // hook must never outlive its budget and hold a turn open.
+        //
+        // KNOWN GAP: neither this nor `runProcess`'s own timeout interrupted a
+        // long child in a test (a 5s `sleep` with a 200ms budget completed), so
+        // bounding is unproven. Investigate the spawner's interruptibility.
+        Effect.timeoutOption(Duration.millis(hook.timeoutMs ?? DEFAULT_TIMEOUT_MS)),
+        Effect.map((result): SharedHookRunResult => {
+          if (Option.isNone(result)) {
+            return {
+              id,
+              event: input.event,
+              status: "timed-out",
+              exitCode: null,
+              stdout: "",
+              stderr: "",
+            };
+          }
+          const output = result.value;
+          return {
+            id,
+            event: input.event,
+            status: output.timedOut ? "timed-out" : output.code === 0 ? "completed" : "failed",
+            exitCode: output.code,
+            stdout: output.stdout,
+            stderr: output.stderr,
+          };
+        }),
         Effect.catchCause((cause) =>
           Effect.succeed<SharedHookRunResult>({
             id,

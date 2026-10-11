@@ -57,6 +57,19 @@ Hooks are universal: T3 runs them for every provider, so the driver badges do
 not apply. Use the per-instance switch and the exclude chips to withhold a hook
 from one instance.
 
+## Plugins
+
+A plugin is your own directory in the Agent-Plugins form (a `plugin.json` plus
+optional `skills/`, `hooks.json`, `mcp_config.json`, …). Give it a name and
+point at the directory; T3 links it into a provider's managed plugin root, the
+same way as a skill, with the same guarantees: only managed homes are written
+and only T3's own links are removed.
+
+Only **Codex** exposes a managed plugin root today, so its badge is the only
+one that reads as supported. The other drivers install plugins through their
+own marketplaces or CLIs, which T3 does not drive yet; they are reported rather
+than silently skipped.
+
 ## Not supported everywhere
 
 Some drivers have no safe delivery path yet (project-seeded skills, user-home
