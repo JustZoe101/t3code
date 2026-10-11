@@ -278,8 +278,8 @@ export function applyServerSettingsPatch(
     usageModelAliases: usageModelAliasesPatch,
     // Entry replacement: deepMerge would keep keys the client meant to clear.
     projectSettingsOverrides: projectSettingsOverridesPatch,
-    // Whole-map replacement, like `providerInstances`: deepMerge would keep a
-    // removed shared server.
+    // Per-kind whole-map replacement: a kind the patch names is replaced (so a
+    // removed shared server/skill goes away), a kind it omits is preserved.
     sharedAgentResources: sharedAgentResourcesPatch,
     // Already translated into `projectSettingsOverrides` above; the legacy
     // maps are derived views and must never be merged directly.
@@ -412,7 +412,12 @@ export function applyServerSettingsPatch(
       ? { providerInstances: patch.providerInstances }
       : {}),
     ...(sharedAgentResourcesPatch !== undefined
-      ? { sharedAgentResources: sharedAgentResourcesPatch }
+      ? {
+          sharedAgentResources: {
+            ...current.sharedAgentResources,
+            ...sharedAgentResourcesPatch,
+          },
+        }
       : {}),
     ...(patch.worktreesDirectory !== undefined &&
     patch.worktreesDirectory !== current.worktreesDirectory

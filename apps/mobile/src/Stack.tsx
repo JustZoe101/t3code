@@ -81,6 +81,7 @@ import { SettingsClientStorageRouteScreen } from "./features/settings/SettingsCl
 import { SettingsDiagnosticsRouteScreen } from "./features/diagnostics/SettingsDiagnosticsRouteScreen";
 import { SettingsProviderAccountsRouteScreen } from "./features/settings/SettingsProviderAccountsRouteScreen";
 import { SettingsSharedMcpRouteScreen } from "./features/settings/SettingsSharedMcpRouteScreen";
+import { SettingsSharedSkillsRouteScreen } from "./features/settings/SettingsSharedSkillsRouteScreen";
 import { SettingsAuthRouteScreen } from "./features/settings/SettingsAuthRouteScreen";
 import { SettingsEnvironmentDetailRouteScreen } from "./features/settings/SettingsEnvironmentDetailRouteScreen";
 import { SettingsEnvironmentsRouteScreen } from "./features/settings/SettingsEnvironmentsRouteScreen";
@@ -249,6 +250,11 @@ const SettingsContentStack = createV5SheetStackNavigator({
       screen: SettingsSharedMcpRouteScreen,
       linking: "shared-mcp",
       options: { title: "Shared MCP servers" },
+    }),
+    SettingsSharedSkills: createNativeStackScreen({
+      screen: SettingsSharedSkillsRouteScreen,
+      linking: "shared-skills",
+      options: { title: "Shared skills" },
     }),
     SettingsEnvironmentMaintenance: createNativeStackScreen({
       screen: SettingsEnvironmentMaintenanceRouteScreen,

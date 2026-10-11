@@ -10,10 +10,13 @@ import {
   type SharedMcpServer,
   type SharedMcpTransport,
   type SharedResourceVariable,
+  type SharedSkill,
 } from "@t3tools/contracts";
 import {
   PROVIDER_MCP_TRANSPORT_SUPPORT,
   mcpTransportSupport,
+  skillSupportForDriver,
+  type SkillSupport,
 } from "@t3tools/shared/providerResources";
 
 export const SHARED_MCP_DRIVER_KINDS = Object.keys(
@@ -127,4 +130,53 @@ export function sharedMcpServerFromDraft(draft: SharedMcpServerDraft): SharedMcp
     ...(draft.headers.length > 0 ? { headers: [...draft.headers] } : {}),
     targeting,
   } as unknown as SharedMcpServer;
+}
+
+export interface SharedSkillSupport {
+  readonly driver: ProviderDriverKind;
+  readonly support: SkillSupport;
+}
+
+/** Per-driver skill support. Skills have no transport axis, so this is flat. */
+export function sharedSkillDriverSupport(): ReadonlyArray<SharedSkillSupport> {
+  return SHARED_MCP_DRIVER_KINDS.map((driver) => ({
+    driver,
+    support: skillSupportForDriver(driver),
+  }));
+}
+
+export interface SharedSkillDraft {
+  readonly originalId: string | null;
+  readonly id: string;
+  readonly source: string;
+  readonly drivers: ReadonlyArray<ProviderDriverKind>;
+  readonly excludeDrivers: ReadonlyArray<ProviderDriverKind>;
+}
+
+export function draftFromSharedSkill(id: string, skill: SharedSkill): SharedSkillDraft {
+  return {
+    originalId: id,
+    id,
+    source: skill.source,
+    drivers: [...(skill.targeting?.drivers ?? [])] as unknown as ReadonlyArray<ProviderDriverKind>,
+    excludeDrivers: [
+      ...(skill.targeting?.excludeDrivers ?? []),
+    ] as unknown as ReadonlyArray<ProviderDriverKind>,
+  };
+}
+
+export function emptySharedSkillDraft(): SharedSkillDraft {
+  return { originalId: null, id: "", source: "", drivers: [], excludeDrivers: [] };
+}
+
+/** `undefined` when the draft is incomplete; a form refuses to save then. */
+export function sharedSkillFromDraft(draft: SharedSkillDraft): SharedSkill | undefined {
+  const id = draft.id.trim();
+  const source = draft.source.trim();
+  if (id.length === 0 || source.length === 0) return undefined;
+  const targeting = {
+    ...(draft.drivers.length > 0 ? { drivers: draft.drivers } : {}),
+    ...(draft.excludeDrivers.length > 0 ? { excludeDrivers: draft.excludeDrivers } : {}),
+  };
+  return { source, targeting } as unknown as SharedSkill;
 }

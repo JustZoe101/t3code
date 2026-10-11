@@ -4,6 +4,8 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   UsageLimitSourceId,
+  type SharedMcpServerMap,
+  type SharedSkillMap,
   type ServerProvider,
 } from "@t3tools/contracts";
 import * as Duration from "effect/Duration";
@@ -995,5 +997,32 @@ describe("synchronized model preferences", () => {
       favorites: [],
       providerModelPreferences: {},
     });
+  });
+
+  it("replaces only the shared-resource kinds a patch names", () => {
+    const withMcp = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      sharedAgentResources: {
+        mcpServers: {
+          a: { transport: "stdio", command: "a", targeting: {} },
+        } as unknown as SharedMcpServerMap,
+      },
+    });
+    expect(Object.keys(withMcp.sharedAgentResources.mcpServers)).toEqual(["a"]);
+
+    // A skills-only patch keeps the MCP servers already there.
+    const withBoth = applyServerSettingsPatch(withMcp, {
+      sharedAgentResources: {
+        skills: { s: { source: "/s", targeting: {} } } as unknown as SharedSkillMap,
+      },
+    });
+    expect(Object.keys(withBoth.sharedAgentResources.mcpServers)).toEqual(["a"]);
+    expect(Object.keys(withBoth.sharedAgentResources.skills)).toEqual(["s"]);
+
+    // Replacing the MCP map still drops a removed server, and keeps skills.
+    const cleared = applyServerSettingsPatch(withBoth, {
+      sharedAgentResources: { mcpServers: {} as unknown as SharedMcpServerMap },
+    });
+    expect(Object.keys(cleared.sharedAgentResources.mcpServers)).toEqual([]);
+    expect(Object.keys(cleared.sharedAgentResources.skills)).toEqual(["s"]);
   });
 });

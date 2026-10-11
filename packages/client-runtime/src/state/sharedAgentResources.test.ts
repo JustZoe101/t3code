@@ -3,8 +3,11 @@ import type { ProviderDriverKind } from "@t3tools/contracts";
 
 import {
   emptySharedMcpServerDraft,
+  emptySharedSkillDraft,
   sharedMcpServerFromDraft,
   sharedServerSupportBadges,
+  sharedSkillDriverSupport,
+  sharedSkillFromDraft,
 } from "./sharedAgentResources.ts";
 
 const supportFor = (server: NonNullable<ReturnType<typeof sharedMcpServerFromDraft>>) =>
@@ -68,5 +71,24 @@ describe("shared MCP server draft", () => {
     expect(remoteSupport.codex).toBe("supported");
     // ACP agents drop injected HTTP servers, so those read as unreliable.
     expect(remoteSupport.grok).toBe("unreliable");
+  });
+});
+
+describe("shared skill draft", () => {
+  it("requires a name and a source directory", () => {
+    expect(sharedSkillFromDraft({ ...emptySharedSkillDraft(), id: "x" })).toBeUndefined();
+    expect(
+      sharedSkillFromDraft({ ...emptySharedSkillDraft(), id: "x", source: "/s/x" }),
+    ).toBeDefined();
+  });
+
+  it("reports per-driver skill support", () => {
+    const support = Object.fromEntries(
+      sharedSkillDriverSupport().map(({ driver, support: value }) => [driver, value]),
+    );
+    expect(support.claudeAgent).toBe("supported");
+    expect(support.codex).toBe("supported");
+    expect(support.grok).toBe("unsupported");
+    expect(support.pi).toBe("unsupported");
   });
 });
